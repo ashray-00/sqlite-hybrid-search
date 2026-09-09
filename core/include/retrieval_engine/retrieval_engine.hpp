@@ -56,22 +56,6 @@ public:
     RetrievalEngine(const std::string& db_path, std::size_t dim);
     ~RetrievalEngine();
 
-    // Adds `vector` to the usearch index under key `id`, and records a
-    // corresponding row in the dummy SQLite table so the two stores can be
-    // cross-checked for consistency. Throws std::invalid_argument if
-    // `vector.size() != dim`, or std::runtime_error on a usearch/SQLite
-    // failure.
-    void add_vector(std::uint64_t id, const std::vector<float>& vector);
-
-    // Returns the ids of (up to) the `k` nearest neighbours of `query`,
-    // ordered nearest-first. Throws std::invalid_argument if
-    // `query.size() != dim`, or std::runtime_error on a usearch failure.
-    std::vector<std::uint64_t> search(const std::vector<float>& query, std::size_t k) const;
-
-    // Number of rows currently present in the dummy SQLite table -- used to
-    // verify that SQLite bookkeeping stays in sync with the usearch index.
-    std::size_t dummy_table_row_count() const;
-
     // Stage 1 (BUILD_PLAN.md): stores each document's chunks + metadata in
     // SQLite (the authoritative store) and adds each chunk's embedding to a
     // dedicated chunk-search usearch index (cosine similarity), keyed by a

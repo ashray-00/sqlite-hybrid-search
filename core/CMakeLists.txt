@@ -2,16 +2,15 @@
 #
 # retrieval_engine.cpp is a thin Pimpl facade implementing the public
 # interface (include/retrieval_engine/retrieval_engine.hpp) by delegating to
-# two internal, independently-testable stores (dummy_vector_store.cpp:
-# Stage 0's scaffolding; chunk_store.cpp: Stage 1's real feature), which in
-# turn share the generic SQLite RAII helpers in sqlite_util.cpp and the
-# usearch capacity helper in usearch_util.hpp (header-only). chunking.cpp
-# (Stage 1) implements the token-window chunker, used by callers directly
-# rather than by any store.
+# chunk_store.cpp (the real feature), which in turn shares the generic
+# SQLite RAII helpers in sqlite_util.cpp and the usearch capacity helper in
+# usearch_util.hpp (header-only). chunking.cpp implements the token-window
+# chunker, used by callers directly rather than by ChunkStore. (Stage 0's
+# scaffolding, dummy_vector_store.cpp, was removed once Stage 1 shipped the
+# real feature and nothing else depended on it -- see docs/DECISIONS.md.)
 add_library(retrieval_engine_core
     src/chunk_store.cpp
     src/chunking.cpp
-    src/dummy_vector_store.cpp
     src/retrieval_engine.cpp
     src/sqlite_util.cpp
 )

@@ -1,18 +1,11 @@
-// Stage 1 (BUILD_PLAN.md) -- TDD RED phase.
+// Stage 1 (BUILD_PLAN.md): ingestion + dense retrieval.
 //
-// Tests two not-yet-implemented pieces of Stage 1:
-//
-//  1. Chunking.* -- retrieval_engine::chunk_text(), declared in
-//     core/include/retrieval_engine/chunking.hpp but with no definition
-//     anywhere yet (no chunking.cpp exists). Calling it is expected to fail
-//     the build with an undefined-symbol (linker) error.
-//  2. RetrievalEngineStage1.* -- retrieval_engine::RetrievalEngine's new
-//     add_documents()/search_chunks()/chunk_count() members, declared in
-//     retrieval_engine.hpp but not implemented in retrieval_engine.cpp.
-//     Same expected failure mode.
-//
-// Do not "fix" either by adding an implementation -- that is Phase 2
-// (GREEN). This file's job right now is only to fail for the right reason.
+//  1. Chunking.* -- retrieval_engine::chunk_text() (token-window chunker),
+//     core/include/retrieval_engine/chunking.hpp / core/src/chunking.cpp.
+//  2. RetrievalEngineStage1.* -- retrieval_engine::RetrievalEngine's
+//     add_documents()/search_chunks()/chunk_count() (core/src/chunk_store.*
+//     as of the SOLID-split refactor; see docs/DECISIONS.md), including the
+//     constructor validation RetrievalEngine itself still owns post-split.
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -127,6 +120,13 @@ std::vector<float> QueryVectorForDocument(std::size_t d) {
 }
 
 }  // namespace
+
+TEST(RetrievalEngineStage1, ConstructorRejectsZeroDimension) {
+    const std::string db_path = "stage1_test_zero_dim.sqlite3";
+    std::remove(db_path.c_str());
+
+    EXPECT_THROW(retrieval_engine::RetrievalEngine(db_path, /*dim=*/0), std::invalid_argument);
+}
 
 TEST(RetrievalEngineStage1, SearchChunksReturnsExpectedDocumentAndPersistsRowCount) {
     const std::string db_path = "stage1_test_search.sqlite3";

@@ -1,11 +1,11 @@
-add_executable(test_stage0 test_stage0.cpp)
+add_executable(test_infra_sanity test_infra_sanity.cpp)
 
-target_link_libraries(test_stage0 PRIVATE
+target_link_libraries(test_infra_sanity PRIVATE
     retrieval_engine::core
     GTest::gtest_main
 )
 
-gtest_discover_tests(test_stage0)
+gtest_discover_tests(test_infra_sanity)
 
 add_executable(test_stage1 test_stage1.cpp)
 

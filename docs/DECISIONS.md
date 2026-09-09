@@ -91,6 +91,19 @@ permanently. Revisit in a later cleanup-focused stage -- retiring Stage 0's
 scaffolding now that Stage 1's real schema exists would be a deliberate,
 reviewed decision, not a side effect of adding Stage 1.
 
+**Resolved:** the user asked directly whether the dummy scaffolding was
+still needed. Removed it: `add_vector`/`search`/`dummy_table_row_count`,
+`dummy_vectors`, and the whole `dummy_vector_store.{hpp,cpp}` file (added
+during the SOLID split above) are gone. Nothing else in the codebase
+depended on them -- no Python bindings or CLI exist yet (Stage 3), and
+`test_stage0.cpp`'s `RetrievalEngineStage0.*` tests were the only consumers,
+also removed. Its two tests that exercised usearch/SQLite3 directly
+(independent of the dummy API) were kept and moved to
+`test_infra_sanity.cpp`; the still-relevant `ConstructorRejectsZeroDimension`
+test (that validation lives in `RetrievalEngine`'s constructor itself, not
+in either store) moved to `test_stage1.cpp`. All 10 remaining tests pass
+unmodified in content, zero warnings under `-Wall -Wextra -Wpedantic`.
+
 ## Stage 0
 
 ## Blocker: usearch v2.9.2 fails to compile under AppleClang
