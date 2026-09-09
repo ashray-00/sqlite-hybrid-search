@@ -15,20 +15,20 @@ raw numbers in [`benchmarks/results.json`](benchmarks/results.json).
 
 - **Retrieval quality:** Recall@10, nDCG@10, MRR@10 over 100 labelled queries.
 - **Latency:** warm-cache p50 / p95 / p99 and throughput; cold-cache first-query
-  latency; index rebuild-on-open time.
-- **Footprint:** SQLite file size on disk, process peak RSS, RSS growth during
-  indexing, ingestion throughput.
+  latency; index **load**-on-open time (from the `.usearch` sidecar).
+- **Footprint:** SQLite + sidecar size on disk, process peak RSS, RSS growth
+  during indexing, ingestion throughput.
 
 ### Environment
 
 `macOS 26.6 arm64` (Apple Silicon), Python 3.12, engine dim 64, single thread.
-Full C++/Python test suites green (`ctest`: 35, `pytest benchmarks/test_eval.py`: 10).
+Full C++/Python test suites green (`ctest`: 40, `pytest`: 32).
 
 ### Reproduce
 
 ```
 cmake -B build -DCMAKE_PREFIX_PATH=/opt/homebrew && cmake --build build
-.venv/bin/python benchmarks/run_eval.py            # 1k / 10k / 100k, ~2.5 min
+.venv/bin/python benchmarks/run_eval.py            # 1k / 10k / 100k, ~1.5 min
 ```
 
 ### Honest caveat on the corpus
@@ -101,55 +101,71 @@ disagree"*, not as an absolute quality score for dense retrieval.
 
 | Approach | 1k p50 | 1k p95 | 1k p99 | 10k p50 | 10k p95 | 10k p99 | 100k p50 | 100k p95 | 100k p99 |
 |---|---|---|---|---|---|---|---|---|---|
-| dense | 0.088 | 0.093 | 0.097 | 0.105 | 0.115 | 0.116 | 0.171 | 0.196 | 0.203 |
-| sparse | 0.429 | 0.440 | 0.452 | 4.570 | 5.072 | 5.236 | 48.65 | 49.51 | 53.69 |
-| hybrid | 0.530 | 0.542 | 0.549 | 4.765 | 5.158 | 5.276 | 48.85 | 51.10 | 54.57 |
-| hybrid_decay | 0.724 | 0.772 | 0.804 | 6.510 | 7.373 | 7.673 | 69.65 | 83.84 | 87.34 |
+| dense | 0.090 | 0.094 | 0.097 | 0.103 | 0.112 | 0.115 | 0.173 | 0.199 | 0.211 |
+| sparse | 0.436 | 0.457 | 0.478 | 4.605 | 5.013 | 5.159 | 49.34 | 49.77 | 49.89 |
+| hybrid | 0.524 | 0.541 | 0.558 | 4.765 | 5.059 | 5.297 | 49.44 | 50.13 | 50.50 |
+| hybrid_decay | 0.729 | 0.790 | 0.818 | 6.517 | 7.350 | 7.630 | 70.06 | 83.28 | 85.93 |
 
 **Throughput (queries/sec, single thread):**
 
 | Approach | 1k | 10k | 100k |
 |---|---|---|---|
-| dense | 11284 | 9401 | 5770 |
-| sparse | 2333 | 216 | 20 |
-| hybrid | 1888 | 208 | 20 |
-| hybrid_decay | 1388 | 156 | 14 |
+| dense | 11048 | 9625 | 5705 |
+| sparse | 2286 | 215 | 20 |
+| hybrid | 1905 | 208 | 20 |
+| hybrid_decay | 1371 | 155 | 14 |
 
 - **Dense is sub-millisecond and near flat with scale** (0.09 → 0.17 ms p50 from
   1k to 100k) — usearch HNSW is doing its job.
 - **Sparse/hybrid latency is dominated by FTS5** and grows roughly linearly with
   corpus size: ~0.4 ms → ~49 ms p50. The OR-of-terms BM25 query scans large
   posting lists for common tokens. This is the main query-time bottleneck.
+  Fusion now feeds BM25's top `min(k, 200)` rows into RRF — a ceiling that
+  bounds pathologically large `k` without touching ordinary retrieval, so at
+  the benchmark's `k = 10` sparse/hybrid latency is unchanged.
 - **`hybrid_decay` adds a re-scoring pass** over the fused candidate set:
-  +40% p50 over `hybrid` at 100k (48.8 → 69.6 ms), and a wider p95/p99 tail.
+  +40% p50 over `hybrid` at 100k (49.4 → 70.1 ms), and a wider p95/p99 tail.
 
-**Cold vs warm.** The *query itself* is barely colder than warm (e.g. 100k
-`hybrid`: 61.5 ms cold vs 48.8 ms warm p50). The real cold-start cost is
-rebuilding the usearch index from SQLite on `RetrievalEngine` construction —
-there is no persisted index file:
+**Index load on open.** The usearch graph is persisted to a `<db>.usearch`
+sidecar and memory-loaded on the next open instead of being rebuilt from
+SQLite. Startup is now effectively instant at every size:
 
-| Dataset | Index rebuild on open |
-|---|---|
-| 1k | 40 ms |
-| 10k | 721 ms |
-| 100k | **14.6 s** |
+| Dataset | Load from sidecar | (was: rebuild from SQLite) |
+|---|---|---|
+| 1k | 0.7 ms | 40 ms |
+| 10k | 3.2 ms | 721 ms |
+| 100k | **24.5 ms** | **14.6 s** |
+
+The first open of a brand-new database still rebuilds (there is no sidecar
+yet) and writes the sidecar; every open after that takes the load path. A
+sidecar that is missing, truncated, or out of sync with the chunk table is
+rejected in microseconds and the engine falls back to a rebuild.
+
+**Cold vs warm query.** With the graph loaded from the sidecar, the first
+query after an open is no slower than a warm one (100k `hybrid`: 49.3 ms cold
+vs 49.4 ms warm p50; `dense`: 0.32 ms cold vs 0.17 ms warm).
 
 ---
 
 ## Memory & storage footprint
 
-| Dataset | SQLite on disk | Ingest throughput | RSS growth during indexing | Process peak RSS |
-|---|---|---|---|---|
-| 1k | 0.57 MB | 22392 docs/s | 3.6 MB | 36 MB |
-| 10k | 5.21 MB | 13036 docs/s | 11.0 MB | 79 MB |
-| 100k | 51.98 MB | 6482 docs/s | 52.4 MB | 431 MB |
+| Dataset | SQLite | `.usearch` sidecar | Ingest throughput | RSS growth during indexing | Process peak RSS |
+|---|---|---|---|---|---|
+| 1k | 0.57 MB | ~0.5 MB | 21695 docs/s | 3.5 MB | 35 MB |
+| 10k | 5.21 MB | ~4 MB | 12826 docs/s | 11.1 MB | 79 MB |
+| 100k | 51.98 MB | 40.5 MB | 6505 docs/s | 52.5 MB | 430 MB |
 
-- **On-disk scales linearly**, ~520 bytes/doc (chunk text + metadata + the FTS5
-  index + the vector blob kept for index rebuild).
-- **Ingestion throughput falls ~3.5× from 1k to 100k** — dual-writing SQLite,
+- **On-disk scales linearly.** SQLite is ~520 bytes/doc (chunk text + metadata +
+  FTS5 index + the vector blob kept for a rebuild); the sidecar adds the
+  serialised HNSW graph (~400 bytes/doc at dim 64). At 100k that is ~92 MB
+  total.
+- **Ingestion throughput falls ~3.3× from 1k to 100k** — dual-writing SQLite,
   FTS5, and usearch, with HNSW insertion getting more expensive as the graph
-  grows.
-- **Peak RSS at 100k (431 MB) is inflated by the Python driver** holding the
+  grows. The harness ingests in 5k-row batches and the sidecar is reserialised
+  after each one (20 writes at 100k); measured throughput (6505 docs/s) is
+  within run-to-run noise of the pre-persistence number (6482), but a workload
+  of many tiny batches would pay more, since each save rewrites the whole graph.
+- **Peak RSS at 100k (430 MB) is inflated by the Python driver** holding the
   whole synthetic corpus (100k × 64 floats as Python lists) in memory at once.
   The native cross-check below is the honest engine-only number.
 
@@ -160,14 +176,14 @@ there is no persisted index file:
 | | value |
 |---|---|
 | SQLite on disk | 8.58 MB |
-| Peak RSS (engine only) | 37.2 MB |
-| Ingest throughput | 785 docs/s |
-| dense p50 / p95 / p99 | 0.673 / 0.736 / 0.790 ms |
-| hybrid p50 / p95 / p99 | 0.941 / 1.001 / 1.054 ms |
+| Peak RSS (engine only) | 37.7 MB |
+| Ingest throughput | 783 docs/s |
+| dense p50 / p95 / p99 | 0.671 / 0.736 / 0.793 ms |
+| hybrid p50 / p95 / p99 | 0.938 / 0.999 / 1.048 ms |
 
-The engine's own peak RSS for 20k docs is **37 MB**, versus the 79–431 MB the
+The engine's own peak RSS for 20k docs is **~38 MB**, versus the 79–430 MB the
 Python-driven run reports — most of that difference is the driver, not the
-engine. Ingest throughput here (785 docs/s) is a *worst case*: uniformly random
+engine. Ingest throughput here (783 docs/s) is a *worst case*: uniformly random
 64-dim vectors are the hardest input for HNSW (every candidate is roughly
 equidistant), whereas the structured corpus in the Python run indexes 8–28×
 faster. Real embeddings sit between the two.
@@ -189,29 +205,33 @@ faster. Real embeddings sit between the two.
 - **Recency-biased agent memory is built in.** `hybrid_decay` held nDCG ≈ 0.997
   across all sizes by preferring recent relevant memories — the Mem0/Zep-style
   capability, in-process, no service, one `decay_lambda` parameter.
-- **Zero-dependency deployment.** One process, one SQLite file, an in-memory
-  usearch index. No server to run, no container, nothing listening on a port.
-  Engine-only peak RSS is ~37 MB for 20k docs.
+- **Zero-dependency deployment.** One process, one SQLite file plus a
+  `.usearch` sidecar, an in-memory usearch index. No server to run, no
+  container, nothing listening on a port. Engine-only peak RSS is ~38 MB for
+  20k docs.
+- **Instant startup via the disk-backed index sidecar.** The HNSW graph is
+  serialised to `<db>.usearch` on write and memory-loaded on the next open:
+  **24.5 ms at 100k**, versus 14.6 s to rebuild it from SQLite. Cold start is
+  no longer a function of corpus size.
 - **Dense retrieval is fast and scale-stable.** Sub-0.2 ms p50 at 100k, ~5700
   q/s single-threaded.
-- **SQLite is authoritative.** The vector index is a rebuildable sidecar; a
-  corrupted index is `rm index && reopen`, not data loss.
+- **SQLite stays authoritative.** The sidecar is a cache: if it is missing,
+  truncated, or its vector count disagrees with the chunk table, the engine
+  discards it and rebuilds — a corrupt index is never data loss.
 
 ### Where it loses or bottlenecks
 
-- **No persisted vector index.** The usearch graph is rebuilt from SQLite on
-  every open: **14.6 s for 100k docs**. Fine for a long-lived process, painful
-  for short-lived CLI invocations on a large corpus. A saved-index path is the
-  obvious next step.
 - **Sparse/hybrid query latency grows with corpus size** — ~49 ms p50 at 100k,
   ~20 q/s. FTS5's BM25 over an OR of common terms is the cost. Dense stays
   sub-millisecond; the fusion is only as fast as its slower half.
 - **`hybrid_decay` has a fat tail.** The extra recency re-scoring pass pushes
   100k p99 to ~87 ms and throughput to ~14 q/s.
-- **Dual-write ingestion overhead.** Every document hits SQLite, FTS5, and
-  usearch; throughput drops ~3.5× from 1k to 100k, and HNSW insertion cost is
-  sensitive to how clustered the embeddings are (785 → 22k docs/s depending on
-  input).
+- **Dual-write ingestion overhead, plus sidecar reserialisation.** Every
+  document hits SQLite, FTS5, and usearch; throughput drops ~3.3× from 1k to
+  100k, and HNSW insertion cost is sensitive to how clustered the embeddings
+  are (783 → 22k docs/s depending on input). Each `add_documents` call also
+  rewrites the whole `.usearch` sidecar — negligible for bulk ingest,
+  meaningful for a stream of one-document writes.
 - **Single-threaded, not concurrency-safe.** `RetrievalEngine` must be confined
   to one thread or externally locked; there is no query parallelism yet.
 - **Small embedding dimensions collide.** dim 64 is fine for a demo; production
@@ -226,15 +246,15 @@ faster. Real embeddings sit between the two.
 | Hybrid dense+sparse | built in (RRF) | DIY: wire up FTS5 + your own fusion | dense only (some keyword filtering) | built in (server-side) |
 | Recency / memory semantics | built in (`search_memory`) | DIY | DIY | DIY (metadata + custom scoring) |
 | Rerank / score trail | `search_explained()` | DIY | limited | varies |
-| Persistence model | SQLite authoritative, index rebuilds | SQLite table | DuckDB/parquet | own storage engine |
-| Index persistence | ❌ rebuild on open | ✅ (rows in SQLite) | ✅ | ✅ |
+| Persistence model | SQLite authoritative + `.usearch` sidecar | SQLite table | DuckDB/parquet | own storage engine |
+| Index persistence | ✅ sidecar file, auto-managed | ✅ (rows in SQLite) | ✅ | ✅ |
 | Ops surface | none | none | small | real (scaling, backups, upgrades) |
 | Language | C++ core + Python | C + your language | Python-first | any (client libs) |
 | Best fit | desktop / CLI / edge agent, local-first, privacy | you already live in SQLite and want vectors | Python RAG prototypes | multi-tenant, large-scale, networked |
 
-**When to reach for something else:** if you need a persisted ANN index with
-no rebuild cost, horizontal scale, multi-writer concurrency, or sub-10 ms
-keyword search over millions of docs, a dedicated vector DB is the right tool.
-If you want dense + BM25 + RRF + recency-aware memory in one embeddable library
-with nothing to operate, that gap is what this engine fills — and the `hybrid`
-column above (1.000 recall, no server) is the argument for it.
+**When to reach for something else:** if you need horizontal scale, multi-writer
+concurrency, or sub-10 ms keyword search over millions of docs, a dedicated
+vector DB is the right tool. If you want dense + BM25 + RRF + recency-aware
+memory in one embeddable library with nothing to operate and instant startup,
+that gap is what this engine fills — and the `hybrid` column above (1.000
+recall, no server) is the argument for it.

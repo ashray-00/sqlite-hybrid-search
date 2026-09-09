@@ -9,13 +9,14 @@ review findings, false starts, environment friction — lives in
 |---|---|---|
 | [ADR-1](#adr-1-in-process-library-not-a-vector-database-server) | In-process library, not a vector-database server | Accepted |
 | [ADR-2](#adr-2-sqlite-is-authoritative-usearch-is-a-rebuildable-sidecar) | SQLite authoritative, usearch a rebuildable sidecar | Accepted |
-| [ADR-3](#adr-3-rebuild-the-hnsw-index-from-sqlite-on-open-no-index-file) | Rebuild the HNSW index from SQLite on open | Accepted |
+| [ADR-3](#adr-3-rebuild-the-hnsw-index-from-sqlite-on-open-no-index-file) | Rebuild the HNSW index from SQLite on open | Superseded by [ADR-10](#adr-10-usearch-sidecar-disk-persistence) |
 | [ADR-4](#adr-4-hybrid-retrieval-via-reciprocal-rank-fusion-k60) | Hybrid retrieval via Reciprocal Rank Fusion (k=60) | Accepted |
 | [ADR-5](#adr-5-agent-memory-as-exponential-recency-decay-on-the-fused-score) | Agent memory as exponential recency decay | Accepted |
 | [ADR-6](#adr-6-caller-supplied-embeddings-by-default-built-in-model-optional) | Caller-supplied embeddings by default | Accepted |
 | [ADR-7](#adr-7-quote-and-or-sanitisation-of-fts5-match-input) | Quote-and-OR sanitisation of FTS5 MATCH input | Accepted |
 | [ADR-8](#adr-8-layered-python-bindings-thin-nanobind-shell--pure-python-ergonomics) | Layered Python bindings | Accepted |
 | [ADR-9](#adr-9-single-threaded-instances-no-internal-locking) | Single-threaded instances, no internal locking | Accepted |
+| [ADR-10](#adr-10-usearch-sidecar-disk-persistence) | USearch sidecar disk persistence & memory-mapping | Accepted |
 
 ---
 
@@ -76,6 +77,11 @@ never precedes the commit it depends on.
 
 ## ADR-3: Rebuild the HNSW index from SQLite on open (no index file)
 
+> **Superseded by [ADR-10](#adr-10-usearch-sidecar-disk-persistence).** The
+> rebuild is now the fallback, not the default: the graph is persisted to a
+> sidecar and loaded on open. The "revisit when" trigger below fired at
+> 100k chunks (~15 s open).
+
 **Context.** usearch can serialise its HNSW graph to disk. The alternative
 is to persist nothing and reconstruct the index from the vectors in SQLite
 each time the engine opens.
@@ -133,6 +139,15 @@ and BM25's unbounded range makes any fixed normalisation fragile.
   in a noisier signal can cost a little top-rank precision.
 - Ties on the fused score are broken deterministically by
   `(document_id, chunk_index)` so `search_explained()` is reproducible.
+
+**Amendment.** The sparse side of the fusion fetches `min(k, 200)` BM25
+rows, not an unbounded count. At normal `k` this is exactly `k` (no
+behaviour change); it only caps a caller that asks for a very large `k`, so
+one query cannot pull an entire posting list through RRF. Widening the pool
+*above* `k` was tried and rejected: on a noisy dense signal it let weak
+distractors that also appear in the dense list accumulate enough RRF mass
+to displace sparse-strong relevant docs, dropping hybrid Recall@10 from
+1.000 to ~0.98.
 
 ---
 
@@ -269,3 +284,50 @@ race on it — but `load_embedding_model()` is a mutation like any other.
   access.
 - **Revisit when** an embedding target needs concurrent throughput from a
   shared index; that is a deliberate, separate design effort.
+
+---
+
+## ADR-10: USearch sidecar disk persistence
+
+**Context.** ADR-3 rebuilt the HNSW graph from SQLite on every open. That
+is O(N) HNSW insertions: measured at ~40 ms for 1k chunks but **~15 s for
+100k**, paid on every process start and every reopen. For a CLI or a
+short-lived agent over a large corpus this dominates wall-clock time.
+usearch can serialise a graph (`index.save`) and restore it (`index.load`,
+or `index.view` to memory-map).
+
+**Decision.** Persist the graph to a `<db_path>.usearch` sidecar and load
+it on open, keeping SQLite authoritative.
+
+- **Write.** `ChunkStore::add_documents` serialises the graph after each
+  batch (write to `<path>.tmp`, then atomic `rename`). The initial
+  rebuild-from-SQLite path also writes the sidecar immediately.
+- **Open.** If the sidecar exists and its header validates, `index.load`
+  it. Trust it only if `index.size()` equals the chunk-table row count; a
+  mismatch (a crash between the SQLite commit and the sidecar write) or an
+  unreadable/short file is discarded and the graph is rebuilt from SQLite
+  and re-saved. A cheap header check (`index_dense_metadata_from_path`)
+  rejects garbage in microseconds rather than letting `index.load` spin
+  for tens of seconds on random bytes.
+- **`load`, not `view`.** `view` memory-maps the file read-only, which is
+  faster still but forbids the post-open `add_documents` that incremental
+  ingestion needs. `load` reads into normal memory and keeps the index
+  mutable; at 100k the load is ~25 ms, well inside the target.
+- **In-memory:** `":memory:"` and anonymous temp databases have no stable
+  path, so they get no sidecar and always rebuild.
+
+**Consequences.**
+- Open at 100k drops from ~15 s to **~25 ms** (see `BENCHMARKS.md`). Cold
+  start is no longer a function of corpus size.
+- Disk grows: the sidecar is ~400 bytes/chunk at dim 64 (~40 MB at 100k),
+  on top of SQLite.
+- Every `add_documents` rewrites the whole sidecar. Negligible for bulk
+  ingest (within run-to-run noise at 100k); a workload of many
+  one-document writes would pay for it, and would want a batched `flush()`
+  API instead.
+- A stale sidecar can never cause wrong results — the row-count check
+  forces a rebuild — but a torn write between commit and save is silently
+  repaired on the next open, not the current process.
+- **Revisit when** a read-mostly deployment wants the extra speed and
+  lower RSS of `index.view` (memory-mapping); the `DenseIndex::Load` seam
+  already isolates the choice.

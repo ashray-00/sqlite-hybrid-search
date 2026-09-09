@@ -21,6 +21,8 @@ wheelhouse/
 *.sqlite3-wal
 *.sqlite3-shm
 *.db
+*.usearch
+*.usearch.tmp
 
 # Editor/IDE
 .vscode/

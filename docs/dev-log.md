@@ -1220,3 +1220,41 @@ Stage 6 DONE.
   wheel is not portable as-is. Real distribution needs `delocate`/`auditwheel`
   to bundle them, or a build that treats ONNX Runtime as a runtime-optional
   dependency. `[project.urls]` also needs the real repository URL filled in.
+
+---
+
+## USearch sidecar persistence + FTS5 tuning
+
+Design and rationale are in [`DECISIONS.md`](DECISIONS.md) ADR-10 and the
+ADR-4 amendment. Blockers hit during the build:
+
+- **Heap corruption discarding a loaded index.** `DenseIndex::Clear()` first
+  did `index_ = index_dense_t::make(...)` (move-assign a fresh index, letting
+  the old one destruct). After a successful `index.load()` that reliably
+  crashed in `free` on macOS/ARM64 ("BUG IN LIBMALLOC"). usearch's `load`
+  path establishes state (file mapping / tape allocator) that the plain
+  destructor does not unwind cleanly; `index_.reset()` — usearch's own full
+  teardown — does. Fixed by making `Clear()` call `reset()`.
+
+- **`index.load()` spins for ~20 s on a garbage file.** Feeding usearch's
+  loader 256 bytes of `0xA5` made it interpret random bytes as node counts
+  and grind for 20 s before failing — worse than the 14.6 s rebuild being
+  replaced. Fixed by pre-validating with
+  `index_dense_metadata_from_path()` (reads only the header, fails in
+  microseconds), plus a `< 64` byte size guard. Its `error_t` has a
+  throw-from-destructor "unhandled error" behaviour, so the failed result's
+  error is `release()`d explicitly.
+
+- **Widening the RRF sparse pool regressed recall.** The task suggested
+  `LIMIT max(top_k*4, 100)` for the sparse side. Measured: hybrid Recall@10
+  fell from 1.000 to ~0.98 at 10k/100k, and nDCG from 0.951 to 0.86 —
+  because on a noisy dense signal, weak distractors that also appear in the
+  dense top-k accumulate enough RRF mass to displace sparse-strong relevant
+  docs. Changed to a true ceiling, `min(k, 200)`: a no-op at ordinary `k`
+  (recall stays 1.000, latency unchanged), bounding only pathologically
+  large `k`. No measurable hybrid-latency improvement at `k = 10` — FTS5
+  scans all matches regardless of `LIMIT` — reported as such in
+  BENCHMARKS.md.
+
+Verified: `ctest` 41/41, `pytest` 32/32. Reopen at 100k: 14.6 s -> 24.5 ms.
+Hybrid Recall@10 = 1.000 at 1k/10k/100k.

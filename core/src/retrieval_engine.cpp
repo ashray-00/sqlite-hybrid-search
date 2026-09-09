@@ -7,9 +7,37 @@
 
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace retrieval_engine {
+
+namespace {
+
+// The usearch graph is persisted alongside the SQLite file as
+// "<db_path>.usearch". In-memory databases (":memory:") and the anonymous
+// temp database ("") have no stable path to sit beside, so they get no
+// sidecar and rebuild the index from SQLite on every open.
+std::string DeriveIndexSidecarPath(const std::string& db_path) {
+    if (db_path.empty() || db_path == ":memory:") return {};
+    return db_path + ".usearch";
+}
+
+// Counts whitespace-delimited tokens, matching chunk_text()'s notion of a
+// "token" (a maximal run of non-whitespace) -- used only to fill in a
+// single-chunk document's [start_token, end_token) span for add_text().
+std::size_t CountWhitespaceTokens(const std::string& text) {
+    std::size_t count = 0;
+    bool in_token = false;
+    for (const unsigned char c : text) {
+        const bool is_space = (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v');
+        if (!is_space && !in_token) ++count;
+        in_token = !is_space;
+    }
+    return count;
+}
+
+}  // namespace
 
 // The private implementation (Pimpl idiom) -- keeps usearch/SQLite types out
 // of the public header. A thin composition of the one SQLite connection and
@@ -34,7 +62,9 @@ struct RetrievalEngine::Impl {
     std::unique_ptr<detail::TextEmbedder> embedder;
 
     Impl(const std::string& db_path, std::size_t dimension)
-        : connection(db_path), dim(dimension), chunk_store(connection.get(), dimension) {}
+        : connection(db_path),
+          dim(dimension),
+          chunk_store(connection.get(), dimension, DeriveIndexSidecarPath(db_path)) {}
 
     // Every raw-text method funnels through here so the "no model attached"
     // error message is written once and is identical everywhere.
@@ -45,24 +75,6 @@ struct RetrievalEngine::Impl {
         return *embedder;
     }
 };
-
-namespace {
-
-// Counts whitespace-delimited tokens, matching chunk_text()'s notion of a
-// "token" (a maximal run of non-whitespace) -- used only to fill in a
-// single-chunk document's [start_token, end_token) span for add_text().
-std::size_t CountWhitespaceTokens(const std::string& text) {
-    std::size_t count = 0;
-    bool in_token = false;
-    for (const unsigned char c : text) {
-        const bool is_space = (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v');
-        if (!is_space && !in_token) ++count;
-        in_token = !is_space;
-    }
-    return count;
-}
-
-}  // namespace
 
 RetrievalEngine::RetrievalEngine(const std::string& db_path, std::size_t dim) {
     if (dim == 0) throw std::invalid_argument("RetrievalEngine: dim must be greater than zero");
@@ -78,6 +90,8 @@ void RetrievalEngine::add_documents(const std::vector<DocumentInput>& documents)
 }
 
 std::size_t RetrievalEngine::chunk_count() const { return impl_->chunk_store.chunk_count(); }
+
+bool RetrievalEngine::loaded_index_from_sidecar() const { return impl_->chunk_store.loaded_index_from_sidecar(); }
 
 std::vector<ChunkSearchResult> RetrievalEngine::search_dense(const std::vector<float>& query, std::size_t k) const {
     return impl_->chunk_store.search_dense(query, k);

@@ -9,8 +9,9 @@
 
 Drop it **inside** an app to give a local LLM two things it lacks: knowledge of
 your private data (RAG) and memory that survives across sessions — with **no
-vector database to run and no cloud**. SQLite is the source of truth; a usearch
-HNSW index is a rebuildable in-memory sidecar.
+vector database to run and no cloud**. SQLite is the source of truth; the
+usearch HNSW graph is persisted to a `.usearch` sidecar and memory-loaded on
+open, so startup is instant regardless of corpus size.
 
 ---
 
@@ -18,7 +19,8 @@ HNSW index is a rebuildable in-memory sidecar.
 
 | | |
 |---|---|
-| **Embedded / zero-service** | One process, one SQLite file, an in-memory index. No Docker, no daemon, no port. A query is a function call — sub-millisecond for dense search (see [benchmarks](#empirical-benchmarks-verified)). |
+| **Embedded / zero-service** | One process, one SQLite file plus a `.usearch` sidecar. No Docker, no daemon, no port. A query is a function call — sub-millisecond for dense search (see [benchmarks](#empirical-benchmarks-verified)). |
+| **Instant startup** | The vector index is loaded from disk, not rebuilt — ~25 ms to open a 100k-chunk store, versus ~15 s to reconstruct it from SQLite. |
 | **Hybrid retrieval** | Dense vector search (usearch, cosine HNSW) **+** sparse keyword search (SQLite FTS5 / BM25), fused by **Reciprocal Rank Fusion** (RRF, k=60). Rank-based fusion — no score normalisation, no per-query tuning. |
 | **Agent memory** | Exponential recency decay — `score × e^(−λ·age_days)` — so a fresher, slightly-less-similar memory can outrank a stale one. `λ = 0` is an exact no-op. |
 | **Explainable** | `search_explained()` returns the full per-result score trail: dense distance & rank, BM25 score & rank, fused score, recency factor, decayed score. |
@@ -124,22 +126,35 @@ side degrades.
 
 | Approach | 1k p50 / p99 | 100k p50 / p99 | 100k throughput |
 |---|---|---|---|
-| Dense | 0.088 / 0.097 ms | 0.171 / 0.203 ms | 5,770 q/s |
-| Hybrid | 0.530 / 0.549 ms | 48.8 / 54.6 ms | 20 q/s |
+| Dense | 0.090 / 0.097 ms | 0.173 / 0.211 ms | 5,705 q/s |
+| Hybrid | 0.524 / 0.558 ms | 49.4 / 50.5 ms | 20 q/s |
 
 Dense stays **sub-0.2 ms p50 at 100k**. Sparse/hybrid latency is dominated by
 FTS5 and grows with corpus size — the main query-time bottleneck.
+
+### Startup: instant, disk-backed index
+
+The usearch graph is serialised to a `<db>.usearch` sidecar and memory-loaded
+on the next open, instead of being rebuilt from SQLite:
+
+| | 1k | 10k | 100k |
+|---|---|---|---|
+| Index load on open | 0.7 ms | 3.2 ms | **24.5 ms** |
+| _(previously: rebuild from SQLite)_ | 40 ms | 0.7 s | **14.6 s** |
+
+SQLite stays authoritative — a missing, truncated, or out-of-sync sidecar is
+rejected and the engine rebuilds transparently.
 
 ### Memory & storage footprint
 
 | | 1k | 10k | 100k |
 |---|---|---|---|
 | SQLite on disk | 0.57 MB | 5.2 MB | 52 MB |
-| Peak RSS (Python-driven) | 36 MB | 79 MB | 431 MB |
-| Index rebuild on open | 40 ms | 0.7 s | 14.6 s |
+| `.usearch` sidecar | ~0.5 MB | ~4 MB | 40.5 MB |
+| Peak RSS (Python-driven) | 35 MB | 79 MB | 430 MB |
 
 The native C++ cross-check (`benchmarks/run_benchmarks.cpp`) puts the
-**engine-only peak RSS at ~37 MB for 20,000 documents** — most of the
+**engine-only peak RSS at ~38 MB for 20,000 documents** — most of the
 Python-driven figure is the benchmark driver holding the corpus, not the engine.
 
 ---
@@ -155,13 +170,13 @@ Python-driven figure is the benchmark driver holding the corpus, not the engine.
 | Score-trail / explainability | `search_explained()` | DIY | limited | varies |
 | Text + metadata storage | SQLite (authoritative) | second table you design | built in | built in |
 | Chunking | token-window built in | DIY | some | DIY / integrations |
-| Vector-index persistence | rebuilt from SQLite on open | rows in SQLite | persisted | persisted |
+| Vector-index persistence | `.usearch` sidecar, auto-managed | rows in SQLite | persisted | persisted |
 | Ops surface | none | none | small | real (scaling, backups, upgrades) |
 | Best fit | desktop / CLI / edge agents, local-first, privacy | you already live in SQLite | Python RAG prototypes | multi-tenant, large-scale, networked |
 
-**Reach for a dedicated vector DB instead** if you need a persisted ANN index
-with no rebuild cost, horizontal scale, multi-writer concurrency, or sub-10 ms
-keyword search over millions of documents.
+**Reach for a dedicated vector DB instead** if you need horizontal scale,
+multi-writer concurrency, or sub-10 ms keyword search over millions of
+documents.
 
 ---
 

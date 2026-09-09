@@ -5,19 +5,60 @@
 #include "time_util.hpp"
 
 #include <algorithm>
+#include <exception>
+#include <filesystem>
 #include <stdexcept>
 #include <utility>
 
 namespace retrieval_engine::detail {
 
-ChunkStore::ChunkStore(sqlite3* db, std::size_t dim) : dimensions_(dim), repository_(db, dim), dense_index_(dim) {
-    // Rebuild the dense sidecar from whatever ChunkRepository already has
-    // persisted -- the "rebuild the index from SQLite" recovery path. Run
-    // unconditionally (not just after corruption), since DenseIndex does
-    // not persist itself, only SQLite does. A no-op on a fresh/empty
-    // database.
+namespace {
+
+// Hard ceiling on how many BM25 rows the sparse side pulls into RRF.
+// Ordinary retrieval (small k) is unaffected -- the sparse fetch stays at
+// `k`, and RrfFuse still returns `k`. This only bounds the work when a
+// caller passes a very large k, so a single query cannot drag an entire
+// posting list through fusion.
+constexpr std::size_t kMaxSparseCandidates = 200;
+
+std::size_t SparseFetchLimit(std::size_t k) { return std::min(k, kMaxSparseCandidates); }
+
+}  // namespace
+
+ChunkStore::ChunkStore(sqlite3* db, std::size_t dim, std::string index_sidecar_path)
+    : dimensions_(dim), index_sidecar_path_(std::move(index_sidecar_path)), repository_(db, dim), dense_index_(dim) {
+    // Fast path: load the HNSW graph straight from the sidecar file,
+    // skipping the O(N) rebuild. SQLite stays authoritative, so the loaded
+    // graph is only trusted when its vector count matches the chunk table
+    // exactly; a mismatch (a crash between the SQLite commit and the sidecar
+    // write, say) or an unreadable file falls back to the rebuild below.
+    if (!index_sidecar_path_.empty() && std::filesystem::exists(index_sidecar_path_)) {
+        try {
+            dense_index_.Load(index_sidecar_path_);
+            if (dense_index_.size() == repository_.chunk_count()) {
+                loaded_index_from_sidecar_ = true;
+                return;
+            }
+            dense_index_.Clear();
+        } catch (const std::exception&) {
+            // A broken sidecar must never be fatal: SQLite can always
+            // reconstruct the index. Discard it and rebuild.
+            dense_index_.Clear();
+        }
+    }
+
+    RebuildIndexFromRepositoryAndPersist();
+}
+
+void ChunkStore::RebuildIndexFromRepositoryAndPersist() {
     repository_.ForEachChunk(
         [this](std::uint64_t chunk_id, const std::vector<float>& embedding) { dense_index_.Add(chunk_id, embedding); });
+    PersistIndexSidecar();
+}
+
+void ChunkStore::PersistIndexSidecar() const {
+    if (index_sidecar_path_.empty()) return;
+    dense_index_.Save(index_sidecar_path_);
 }
 
 void ChunkStore::add_documents(const std::vector<DocumentInput>& documents) {
@@ -48,6 +89,9 @@ void ChunkStore::add_documents(const std::vector<DocumentInput>& documents) {
     // it, the opposite (and architecturally sanctioned) direction of drift.
     const auto pending = repository_.add_documents(documents);
     for (const auto& [chunk_id, embedding] : pending) dense_index_.Add(chunk_id, *embedding);
+
+    // The index changed, so the sidecar is now behind SQLite -- refresh it.
+    PersistIndexSidecar();
 }
 
 std::size_t ChunkStore::chunk_count() const { return repository_.chunk_count(); }
@@ -71,7 +115,7 @@ std::vector<ChunkSearchResult> ChunkStore::search_sparse(const std::string& quer
 
 std::vector<FusionEntry> ChunkStore::Fuse(const std::string& query_text, const std::vector<float>& query_vec,
                                           std::size_t k) const {
-    return RrfFuse(search_dense(query_vec, k), search_sparse(query_text, k), k);
+    return RrfFuse(search_dense(query_vec, k), search_sparse(query_text, SparseFetchLimit(k)), k);
 }
 
 SearchExplanation ChunkStore::ExplanationFromFusionEntry(const FusionEntry& entry, std::size_t rank) {

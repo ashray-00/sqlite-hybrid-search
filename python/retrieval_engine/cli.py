@@ -10,7 +10,9 @@
 
 Both commands operate on an index file in the *current working directory*
 (see _DB_FILENAME) -- `ingest` creates/updates it, `query` reads it. Run
-`query` from the same directory you ran `ingest` from.
+`query` from the same directory you ran `ingest` from. A companion
+`<index>.usearch` sidecar holding the vector graph is written and reloaded
+automatically so `query` starts instantly instead of rebuilding the index.
 
 `query`'s `--decay` (decay_lambda) applies exponential recency decay on top
 of the hybrid score -- e.g. `--decay 0.05` discounts results at

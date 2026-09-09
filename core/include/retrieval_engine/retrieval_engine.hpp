@@ -127,6 +127,13 @@ public:
     // ingestion persisted everything add_documents() was given.
     std::size_t chunk_count() const;
 
+    // True when this instance loaded its dense index from the on-disk
+    // "<db_path>.usearch" sidecar at construction (the fast path), false
+    // when it rebuilt the index from SQLite (no sidecar yet, or one that
+    // was stale or unreadable). Diagnostic only -- results are identical
+    // either way.
+    bool loaded_index_from_sidecar() const;
+
     // Dense-only search: returns (up to) the `k` nearest chunks to `query`
     // by cosine similarity, ordered nearest-first. `score` in each result is
     // the raw cosine distance (lower = more similar). Throws

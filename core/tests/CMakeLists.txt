@@ -51,3 +51,12 @@ target_link_libraries(test_onnx_embedder PRIVATE
 )
 
 gtest_discover_tests(test_onnx_embedder DISCOVERY_TIMEOUT 60)
+
+add_executable(test_persistence test_persistence.cpp)
+
+target_link_libraries(test_persistence PRIVATE
+    retrieval_engine::core
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_persistence DISCOVERY_TIMEOUT 60)

@@ -82,16 +82,17 @@ NB_MODULE(_retrieval_engine_ext, m) {
     // over this), with a friendlier ingestion shape -- see
     // python/retrieval_engine/__init__.py and docs/dev-log.md.
     nb::class_<RetrievalEngine>(m, "NativeEngine")
-        // Opening an existing database rebuilds the entire dense index from
-        // every persisted chunk (usearch is a rebuildable sidecar) --
-        // unbounded work for a large corpus, so
-        // this needs the same GIL release as add_documents()/search_*()
-        // below, not just the obviously "long" methods.
+        // Opening an existing database loads the dense index from the
+        // "<db_path>.usearch" sidecar, or rebuilds it from every persisted
+        // chunk if the sidecar is absent/stale -- either way potentially
+        // unbounded work, so this needs the same GIL release as
+        // add_documents()/search_*() below.
         .def(nb::init<const std::string&, std::size_t>(), nb::arg("db_path"), nb::arg("dim"),
              nb::call_guard<nb::gil_scoped_release>())
         .def("add_documents", &RetrievalEngine::add_documents, nb::arg("documents"),
              nb::call_guard<nb::gil_scoped_release>())
         .def("chunk_count", &RetrievalEngine::chunk_count)
+        .def("loaded_index_from_sidecar", &RetrievalEngine::loaded_index_from_sidecar)
         .def("search_dense", &RetrievalEngine::search_dense, nb::arg("query"), nb::arg("k"),
              nb::call_guard<nb::gil_scoped_release>())
         .def("search_sparse", &RetrievalEngine::search_sparse, nb::arg("query_text"), nb::arg("k"),

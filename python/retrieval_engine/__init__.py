@@ -146,6 +146,14 @@ class Engine:
         """Number of chunks currently indexed."""
         return self._native.chunk_count()
 
+    def loaded_index_from_sidecar(self) -> bool:
+        """True if this engine loaded its dense index from the on-disk
+        ``<db_path>.usearch`` sidecar at open (the fast path), False if it
+        rebuilt from SQLite. Diagnostic only -- results are identical
+        either way, and the sidecar is written and refreshed automatically.
+        """
+        return self._native.loaded_index_from_sidecar()
+
     # --- Built-in local embedding model --------------------------------
 
     def load_embedding_model(self, model_path: str) -> None:

@@ -29,10 +29,20 @@ namespace retrieval_engine::detail {
 
 class ChunkStore {
 public:
-    ChunkStore(sqlite3* db, std::size_t dim);
+    // `index_sidecar_path` is where the usearch graph is persisted between
+    // opens (typically "<db_path>.usearch"). An empty string disables
+    // sidecar persistence and forces a rebuild from SQLite on every open
+    // (used for in-memory databases, which have no stable path to sit
+    // beside).
+    ChunkStore(sqlite3* db, std::size_t dim, std::string index_sidecar_path);
 
     void add_documents(const std::vector<DocumentInput>& documents);
     std::size_t chunk_count() const;
+
+    // True when this instance loaded its dense index from the sidecar file
+    // on construction; false when it had to rebuild from SQLite (no
+    // sidecar, or a stale/unreadable one). Purely diagnostic.
+    bool loaded_index_from_sidecar() const { return loaded_index_from_sidecar_; }
 
     std::vector<ChunkSearchResult> search_dense(const std::vector<float>& query, std::size_t k) const;
     std::vector<ChunkSearchResult> search_sparse(const std::string& query_text, std::size_t k) const;
@@ -80,7 +90,17 @@ private:
     std::vector<DecayedEntry> FuseRankAndDecay(const std::string& query_text, const std::vector<float>& query_vec,
                                                std::size_t k, float decay_lambda) const;
 
+    // Rebuilds the dense index from every chunk in SQLite and, if a sidecar
+    // path is configured, writes the result so the next open can skip this.
+    void RebuildIndexFromRepositoryAndPersist();
+
+    // Persists the dense index to the sidecar file; a no-op when sidecar
+    // persistence is disabled (empty path).
+    void PersistIndexSidecar() const;
+
     std::size_t dimensions_;
+    std::string index_sidecar_path_;
+    bool loaded_index_from_sidecar_ = false;
     ChunkRepository repository_;
     DenseIndex dense_index_;
 };
