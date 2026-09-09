@@ -6,13 +6,14 @@ sidecar is created and reloaded automatically through the bindings and the
 `hybrid-search` console script.
 """
 
+import shutil
 import subprocess
 from pathlib import Path
 
 import sqlite_hybrid_search
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ENGINE_CLI = REPO_ROOT / ".venv" / "bin" / "hybrid-search"
+ENGINE_CLI = shutil.which("hybrid-search") or str(REPO_ROOT / ".venv" / "bin" / "hybrid-search")
 
 _DIM = 4
 

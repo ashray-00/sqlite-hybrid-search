@@ -31,11 +31,12 @@ it maps onto the C++ methods it wraps):
         (name and shape already match the C++ method exactly)
 """
 
+import shutil
 import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ENGINE_CLI = REPO_ROOT / ".venv" / "bin" / "hybrid-search"
+ENGINE_CLI = shutil.which("hybrid-search") or str(REPO_ROOT / ".venv" / "bin" / "hybrid-search")
 
 
 def _sample_documents_and_embeddings():

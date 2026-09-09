@@ -18,6 +18,7 @@ tests that need the real all-MiniLM-L6-v2 model skip when it is absent.
 """
 
 import math
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -27,7 +28,7 @@ import sqlite_hybrid_search
 _EMBEDDING_DIM = 384
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_ENGINE_CLI = _REPO_ROOT / ".venv" / "bin" / "hybrid-search"
+_ENGINE_CLI = shutil.which("hybrid-search") or str(_REPO_ROOT / ".venv" / "bin" / "hybrid-search")
 
 _MINILM_DIM = 384
 

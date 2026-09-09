@@ -8,6 +8,7 @@ integration-level check that the same capability is reachable from the
 Python API and the CLI.
 """
 
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -16,7 +17,7 @@ import sqlite_hybrid_search
 from sqlite_hybrid_search import _sqlite_hybrid_search_ext as _ext
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ENGINE_CLI = REPO_ROOT / ".venv" / "bin" / "hybrid-search"
+ENGINE_CLI = shutil.which("hybrid-search") or str(REPO_ROOT / ".venv" / "bin" / "hybrid-search")
 
 _DIM = 4
 _ONE_DAY_SECONDS = 86400
