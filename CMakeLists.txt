@@ -5,6 +5,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# The static core library gets linked into the nanobind Python extension (a
+# shared object), so all of its objects must be position-independent. ELF
+# linkers reject non-PIC objects in a shared library; Mach-O does not, which
+# is why this was invisible on macOS.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 option(RETRIEVAL_ENGINE_BUILD_TESTS "Build the C++ unit tests" ON)
 # OFF by default so the plain C++ dev/test build (`cmake -B build &&
 # cmake --build build`) is completely unaffected; turned ON by
