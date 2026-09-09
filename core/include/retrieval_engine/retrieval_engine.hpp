@@ -33,6 +33,21 @@ struct DocumentInput {
     std::vector<DocumentChunkInput> chunks;
 };
 
+// A document for the raw-text ingestion path (add_text()): like
+// DocumentInput, but with no caller-supplied embedding -- the engine's
+// built-in embedding model (see load_embedding_model()) computes the
+// vector from `text`, and the whole text becomes a single chunk. Used only
+// when a model has been attached; the caller-supplied-vector path
+// (DocumentInput / add_documents()) is unaffected and still available.
+struct TextDocumentInput {
+    std::string document_id;
+    std::string text;
+    std::string metadata;
+    // Same sentinel semantics as DocumentChunkInput::created_at_unix_seconds:
+    // 0 means "use the current wall-clock time at insertion".
+    std::int64_t created_at_unix_seconds = 0;
+};
+
 // One chunk returned by search_dense()/search_sparse()/search_hybrid(),
 // with enough context to trace it back to its source document without a
 // further lookup.
@@ -172,6 +187,52 @@ public:
     std::vector<SearchExplanation> search_memory_explained(const std::string& query_text,
                                                              const std::vector<float>& query_vec, std::size_t k,
                                                              float decay_lambda) const;
+
+    // --- Built-in local embedding model ---------------------------------
+    // The zero-setup "just give it text" path.
+    // With a model attached, callers pass raw strings and the engine
+    // computes the vectors itself, instead of supplying floats from Python
+    // or an external runtime. All of the above (add_documents() /
+    // search_dense() / search_hybrid() / search_memory() with
+    // caller-supplied vectors) keeps working unchanged whether or not a
+    // model is attached.
+
+    // Loads a local embedding model from `model_path` (e.g. an ONNX or
+    // GGUF file for all-MiniLM-L6-v2 / nomic-embed-text) and attaches it to
+    // this engine, enabling embed(), add_text() and search_text(). The
+    // model's output dimensionality must equal the `dim` passed to the
+    // constructor. Throws std::runtime_error if the file cannot be read or
+    // parsed, or std::invalid_argument if its output dimension != dim.
+    void load_embedding_model(const std::string& model_path);
+
+    // True once load_embedding_model() has successfully attached a model.
+    bool has_embedding_model() const;
+
+    // Output dimensionality of the attached model (always equal to the
+    // engine's `dim`). Throws std::logic_error if no model is attached.
+    std::size_t embedding_dim() const;
+
+    // Computes an embedding for `text` with the attached model. The result
+    // always has exactly embedding_dim() elements and is never empty for
+    // non-empty input. Throws std::logic_error if no model is attached.
+    std::vector<float> embed(const std::string& text) const;
+
+    // Raw-text ingestion: embeds each document's `text` with the attached
+    // model and stores it as a single-chunk document -- equivalent to
+    // embedding each text yourself and calling add_documents(). Throws
+    // std::logic_error if no model is attached, or std::runtime_error on a
+    // storage failure.
+    void add_text(const std::vector<TextDocumentInput>& documents);
+
+    // Raw-text query: embeds `query_text` with the attached model and runs
+    // the memory search (search_memory()) with that vector -- the same text
+    // also drives the sparse/BM25 side. `decay_lambda` is passed straight
+    // through to search_memory() (0, the default, disables recency decay,
+    // making this exactly a hybrid search). `score` in each result holds
+    // search_memory()'s decayed fused score (higher = more relevant).
+    // Throws std::logic_error if no model is attached.
+    std::vector<ChunkSearchResult> search_text(const std::string& query_text, std::size_t k,
+                                                float decay_lambda = 0.0f) const;
 
     RetrievalEngine(const RetrievalEngine&) = delete;
     RetrievalEngine& operator=(const RetrievalEngine&) = delete;

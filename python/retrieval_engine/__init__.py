@@ -145,3 +145,58 @@ class Engine:
     def chunk_count(self) -> int:
         """Number of chunks currently indexed."""
         return self._native.chunk_count()
+
+    # --- Built-in local embedding model --------------------------------
+
+    def load_embedding_model(self, model_path: str) -> None:
+        """Loads a local embedding model from `model_path` and attaches it,
+        enabling embed(), add_text() and search_text(). The model's output
+        dimension must equal the `dim` this Engine was constructed with.
+        Raises RuntimeError if the file is missing/unreadable/unrecognized,
+        ValueError on a dimension mismatch.
+        """
+        self._native.load_embedding_model(model_path)
+
+    def has_embedding_model(self) -> bool:
+        """True once load_embedding_model() has attached a model."""
+        return self._native.has_embedding_model()
+
+    def embedding_dim(self) -> int:
+        """Output dimension of the attached model. Raises if none attached."""
+        return self._native.embedding_dim()
+
+    def embed(self, text: str) -> list[float]:
+        """Embeds `text` with the attached model -- see
+        RetrievalEngine::embed(). Raises if no model is attached.
+        """
+        return list(self._native.embed(text))
+
+    def add_text(self, documents: list[dict[str, Any]]) -> None:
+        """Raw-text ingestion: embeds each document's text with the attached
+        model (no caller-supplied vectors). `documents[i]` must have an
+        "id" key and may have "text", "metadata" (default "") and
+        "created_at_unix_seconds" (default 0) keys. Raises if no model is
+        attached.
+        """
+        native_documents = []
+        for document in documents:
+            native_document = _ext.TextDocumentInput()
+            native_document.document_id = document["id"]
+            native_document.text = document.get("text", "")
+            native_document.metadata = document.get("metadata", "")
+            native_document.created_at_unix_seconds = document.get("created_at_unix_seconds", 0)
+            native_documents.append(native_document)
+        self._native.add_text(native_documents)
+
+    def search_text(
+        self, query_text: str, top_k: int, decay_lambda: float = 0.0
+    ) -> list[dict[str, Any]]:
+        """Raw-text query: embeds `query_text` with the attached model and
+        runs the memory search with it -- see RetrievalEngine::search_text().
+        `decay_lambda=0` (the default) disables recency decay. Raises if no
+        model is attached.
+        """
+        return [
+            _chunk_result_to_dict(r)
+            for r in self._native.search_text(query_text, top_k, decay_lambda)
+        ]

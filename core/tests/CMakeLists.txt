@@ -33,3 +33,12 @@ target_link_libraries(test_recency_decay_and_temporal_reranking PRIVATE
 )
 
 gtest_discover_tests(test_recency_decay_and_temporal_reranking)
+
+add_executable(test_builtin_embedder test_builtin_embedder.cpp)
+
+target_link_libraries(test_builtin_embedder PRIVATE
+    retrieval_engine::core
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_builtin_embedder)

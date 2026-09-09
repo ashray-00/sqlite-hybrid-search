@@ -23,12 +23,16 @@ RetrievalEngine::search_memory()'s doc comment for the exact formula.
 factor/decayed score) instead of just the final score -- backed by
 RetrievalEngine::search_memory_explained().
 
-No embedding model is bundled with this engine -- embeddings are always
-supplied by the caller. Both commands here use a small deterministic
-hashing-trick "embedding" (_hash_embed below) purely so the CLI has
-*something* to feed the dense index end to end; it is not a real semantic
-embedding, and search quality will improve once a real embedding model is
-wired in.
+By default both commands use a small deterministic hashing-trick
+"embedding" (_hash_embed below) purely so the CLI has *something* to feed
+the dense index end to end; it is not a real semantic embedding.
+
+Pass `--model <path> --model-dim <n>` to both `ingest` and `query` to route
+text through the engine's built-in embedder instead (RetrievalEngine::embed()) --
+then `engine query "Where do I live?"` generates the query vector under the
+hood with no caller-supplied floats. Use the *same* `--model`/`--model-dim`
+for `query` as you did for `ingest`: the index is built for one embedding
+space and one dimensionality.
 """
 
 from __future__ import annotations
@@ -62,7 +66,36 @@ def _hash_embed(text: str, dim: int = _DEFAULT_DIM) -> list[float]:
     return vector
 
 
+def _resolve_model_args(args: argparse.Namespace, command: str) -> int | None:
+    """Validates the shared --model / --model-dim pair. Returns an exit code
+    to fail with, or None if the arguments are consistent.
+    """
+    if args.model is not None and args.model_dim is None:
+        print(f"engine {command}: error: --model requires --model-dim <n>", file=sys.stderr)
+        return 1
+    return None
+
+
+def _embed_dim(args: argparse.Namespace) -> int:
+    return args.model_dim if args.model is not None else _DEFAULT_DIM
+
+
+def _make_embedder(engine: "_ext.NativeEngine", args: argparse.Namespace):
+    """Returns the text->vector callable for this run: the engine's built-in
+    embedder when --model was given (loaded once, here), else the
+    dependency-free hashing stand-in.
+    """
+    if args.model is not None:
+        engine.load_embedding_model(args.model)
+        return engine.embed
+    return _hash_embed
+
+
 def _cmd_ingest(args: argparse.Namespace) -> int:
+    model_args_error = _resolve_model_args(args, "ingest")
+    if model_args_error is not None:
+        return model_args_error
+
     folder = Path(args.folder_path)
     if not folder.exists():
         print(f"engine ingest: error: {folder} does not exist", file=sys.stderr)
@@ -74,6 +107,14 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     text_files = sorted(folder.glob("*.txt"))
     if not text_files:
         print(f"engine ingest: error: no .txt files found in {folder}", file=sys.stderr)
+        return 1
+
+    db_path = Path.cwd() / _DB_FILENAME
+    try:
+        engine = _ext.NativeEngine(str(db_path), _embed_dim(args))
+        embed = _make_embedder(engine, args)
+    except Exception as error:  # noqa: BLE001 -- surface any engine failure as a clean CLI error
+        print(f"engine ingest: error: {error}", file=sys.stderr)
         return 1
 
     documents = []
@@ -93,7 +134,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         for chunk in _ext.chunk_text(text, _CHUNK_WINDOW_TOKENS, _CHUNK_OVERLAP_TOKENS):
             native_chunk = _ext.DocumentChunkInput()
             native_chunk.text = chunk.text
-            native_chunk.embedding = _hash_embed(chunk.text)
+            native_chunk.embedding = embed(chunk.text)
             native_chunk.start_token = chunk.start_token
             native_chunk.end_token = chunk.end_token
             chunks.append(native_chunk)
@@ -102,9 +143,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         total_chunks += len(chunks)
         documents.append(document)
 
-    db_path = Path.cwd() / _DB_FILENAME
     try:
-        engine = _ext.NativeEngine(str(db_path), _DEFAULT_DIM)
         engine.add_documents(documents)
     except Exception as error:  # noqa: BLE001 -- surface any engine failure as a clean CLI error
         print(f"engine ingest: error: {error}", file=sys.stderr)
@@ -115,6 +154,10 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def _cmd_query(args: argparse.Namespace) -> int:
+    model_args_error = _resolve_model_args(args, "query")
+    if model_args_error is not None:
+        return model_args_error
+
     if args.top_k <= 0:
         # Caught here, not left to the native binding: NativeEngine.search_hybrid()
         # takes an unsigned C++ size_t, so a negative --top-k fails with a
@@ -133,8 +176,8 @@ def _cmd_query(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        engine = _ext.NativeEngine(str(db_path), _DEFAULT_DIM)
-        query_vec = _hash_embed(args.text)
+        engine = _ext.NativeEngine(str(db_path), _embed_dim(args))
+        query_vec = _make_embedder(engine, args)(args.text)
         # decay=0 is mathematically a no-op (e^0 == 1), so search_memory()/
         # search_memory_explained() with the default --decay are identical
         # to a plain hybrid search -- no need to branch between decayed and
@@ -171,16 +214,39 @@ def _cmd_query(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_model_arguments(subparser: argparse.ArgumentParser) -> None:
+    """The shared --model / --model-dim pair: route text through the
+    engine's built-in embedder instead of the hashing stand-in. Both
+    commands must be given the same values (the index is built for one
+    embedding space).
+    """
+    subparser.add_argument(
+        "--model",
+        default=None,
+        help="Path to a local embedding model file. Requires --model-dim. "
+        "Without this, a deterministic hashing stand-in is used.",
+    )
+    subparser.add_argument(
+        "--model-dim",
+        type=int,
+        default=None,
+        dest="model_dim",
+        help="Output dimension of --model (required whenever --model is given).",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="engine", description="Local-first hybrid retrieval engine CLI.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     ingest_parser = subparsers.add_parser("ingest", help="Chunk and index every .txt file in a folder.")
     ingest_parser.add_argument("folder_path", help="Folder containing .txt files to ingest.")
+    _add_model_arguments(ingest_parser)
     ingest_parser.set_defaults(func=_cmd_ingest)
 
     query_parser = subparsers.add_parser("query", help="Search the current directory's index.")
     query_parser.add_argument("text", help="Query text.")
+    _add_model_arguments(query_parser)
     query_parser.add_argument("--top-k", type=int, default=5, dest="top_k", help="Number of results (default: 5).")
     query_parser.add_argument(
         "--decay",

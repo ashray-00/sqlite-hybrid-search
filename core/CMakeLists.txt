@@ -13,6 +13,11 @@
 #   detail/fts5_query.*       pure FTS5 MATCH-string sanitization
 #   detail/rrf_fusion.*       pure Reciprocal Rank Fusion math
 #   detail/recency_decay.*    pure exponential recency-decay math
+#   detail/text_embedder.hpp   abstract text-to-vector interface (the seam
+#                              for the built-in embed()/add_text()/
+#                              search_text() path)
+#   detail/mock_text_embedder.* deterministic hashing-trick TextEmbedder
+#   detail/embedding_model_loader.* sniffs a model file -> a TextEmbedder
 #   detail/sqlite_util.*      generic SQLite RAII helpers, shared throughout
 #   detail/time_util.hpp      "current time" helper (header-only), likewise
 #   detail/usearch_util.hpp   usearch capacity helper (header-only), likewise
@@ -24,7 +29,9 @@ add_library(retrieval_engine_core
     src/detail/chunk_repository.cpp
     src/detail/chunk_store.cpp
     src/detail/dense_index.cpp
+    src/detail/embedding_model_loader.cpp
     src/detail/fts5_query.cpp
+    src/detail/mock_text_embedder.cpp
     src/detail/recency_decay.cpp
     src/detail/rrf_fusion.cpp
     src/detail/sqlite_util.cpp
