@@ -10,6 +10,7 @@
 #include <vector>
 
 struct sqlite3;
+struct sqlite3_stmt;
 
 // SQLite persistence for chunks: the `documents`/`chunks` tables and the
 // `chunks_fts` FTS5 sparse index. All three are grouped in one class
@@ -22,13 +23,6 @@ struct sqlite3;
 // Non-owning: does not open or close `db` -- RetrievalEngine::Impl owns the
 // connection and outlives every store built on top of it.
 namespace retrieval_engine::detail {
-
-// One persisted chunk's identity and embedding, as returned by
-// ForEachChunk() -- used by ChunkStore to rebuild a DenseIndex on open.
-struct StoredChunk {
-    std::uint64_t chunk_id;
-    std::vector<float> embedding;
-};
 
 class ChunkRepository {
 public:
@@ -78,6 +72,17 @@ public:
     std::int64_t GetCreatedAt(const std::string& document_id, std::size_t chunk_index) const;
 
 private:
+    // The three per-row inserts add_documents() performs, factored out so
+    // its own loop reads as "insert the document row, then insert each
+    // chunk's row and FTS row" rather than interleaving all three
+    // statements' bind/step calls inline. Each takes an already-prepared,
+    // caller-owned statement (reset and rebound here) so the statements
+    // themselves are still prepared once per batch, not once per row.
+    void InsertDocumentRow(sqlite3_stmt* statement, const DocumentInput& document) const;
+    std::uint64_t InsertChunkRow(sqlite3_stmt* statement, const std::string& document_id, std::size_t chunk_index,
+                                  const DocumentChunkInput& chunk) const;
+    void InsertChunkFtsRow(sqlite3_stmt* statement, std::uint64_t chunk_id, const std::string& text) const;
+
     sqlite3* db_;
     std::size_t dimensions_;
 };

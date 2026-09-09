@@ -89,55 +89,16 @@ std::vector<std::pair<std::uint64_t, const std::vector<float>*>> ChunkRepository
         SqliteStatement insert_chunk_fts(db_, "INSERT INTO chunks_fts(rowid, text) VALUES (?, ?);");
 
         for (const auto& document : documents) {
-            sqlite3_reset(insert_document.get());
-            sqlite3_bind_text(insert_document.get(), 1, document.document_id.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(insert_document.get(), 2, document.metadata.c_str(), -1, SQLITE_TRANSIENT);
-            if (sqlite3_step(insert_document.get()) != SQLITE_DONE) {
-                throw std::runtime_error(std::string("ChunkRepository::add_documents: failed to insert document '") +
-                                          document.document_id + "': " + sqlite3_errmsg(db_));
-            }
+            InsertDocumentRow(insert_document.get(), document);
 
             for (std::size_t chunk_position = 0; chunk_position < document.chunks.size(); ++chunk_position) {
                 const DocumentChunkInput& chunk = document.chunks[chunk_position];
 
-                sqlite3_reset(insert_chunk.get());
-                sqlite3_bind_text(insert_chunk.get(), 1, document.document_id.c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_int64(insert_chunk.get(), 2, static_cast<sqlite3_int64>(chunk_position));
-                sqlite3_bind_text(insert_chunk.get(), 3, chunk.text.c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_int64(insert_chunk.get(), 4, static_cast<sqlite3_int64>(chunk.start_token));
-                sqlite3_bind_int64(insert_chunk.get(), 5, static_cast<sqlite3_int64>(chunk.end_token));
-                sqlite3_bind_blob(insert_chunk.get(), 6, chunk.embedding.data(),
-                                   static_cast<int>(chunk.embedding.size() * sizeof(float)), SQLITE_TRANSIENT);
-                // 0 is DocumentChunkInput::created_at_unix_seconds's sentinel
-                // for "use the current time" -- a real timestamp is never
-                // legitimately exactly the Unix epoch.
-                const std::int64_t created_at =
-                    chunk.created_at_unix_seconds != 0 ? chunk.created_at_unix_seconds : CurrentUnixTimeSeconds();
-                sqlite3_bind_int64(insert_chunk.get(), 7, static_cast<sqlite3_int64>(created_at));
-                sqlite3_bind_int64(insert_chunk.get(), 8, static_cast<sqlite3_int64>(created_at));
-
-                if (sqlite3_step(insert_chunk.get()) != SQLITE_DONE) {
-                    throw std::runtime_error(
-                        std::string("ChunkRepository::add_documents: failed to insert chunk: ") +
-                        sqlite3_errmsg(db_));
-                }
-
-                // The chunk's SQLite rowid *is* its usearch key: assigned by
-                // SQLite (not chosen by us), guaranteed unique, and cheap to
-                // map back (WHERE chunk_id = ?) in Resolve(). Reused as-is
-                // for chunks_fts's rowid, so the two stay trivially
-                // joinable.
-                const auto chunk_id = static_cast<std::uint64_t>(sqlite3_last_insert_rowid(db_));
+                const std::uint64_t chunk_id =
+                    InsertChunkRow(insert_chunk.get(), document.document_id, chunk_position, chunk);
                 pending_index_adds.emplace_back(chunk_id, &chunk.embedding);
 
-                sqlite3_reset(insert_chunk_fts.get());
-                sqlite3_bind_int64(insert_chunk_fts.get(), 1, static_cast<sqlite3_int64>(chunk_id));
-                sqlite3_bind_text(insert_chunk_fts.get(), 2, chunk.text.c_str(), -1, SQLITE_TRANSIENT);
-                if (sqlite3_step(insert_chunk_fts.get()) != SQLITE_DONE) {
-                    throw std::runtime_error(std::string("ChunkRepository::add_documents: failed to insert into "
-                                                          "chunks_fts: ") +
-                                              sqlite3_errmsg(db_));
-                }
+                InsertChunkFtsRow(insert_chunk_fts.get(), chunk_id, chunk.text);
             }
         }
     } catch (...) {
@@ -149,6 +110,57 @@ std::vector<std::pair<std::uint64_t, const std::vector<float>*>> ChunkRepository
                         "ChunkRepository::add_documents: failed to commit transaction");
 
     return pending_index_adds;
+}
+
+void ChunkRepository::InsertDocumentRow(sqlite3_stmt* statement, const DocumentInput& document) const {
+    sqlite3_reset(statement);
+    sqlite3_bind_text(statement, 1, document.document_id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(statement, 2, document.metadata.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(statement) != SQLITE_DONE) {
+        throw std::runtime_error(std::string("ChunkRepository::add_documents: failed to insert document '") +
+                                  document.document_id + "': " + sqlite3_errmsg(db_));
+    }
+}
+
+std::uint64_t ChunkRepository::InsertChunkRow(sqlite3_stmt* statement, const std::string& document_id,
+                                               std::size_t chunk_index, const DocumentChunkInput& chunk) const {
+    sqlite3_reset(statement);
+    sqlite3_bind_text(statement, 1, document_id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(statement, 2, static_cast<sqlite3_int64>(chunk_index));
+    sqlite3_bind_text(statement, 3, chunk.text.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(statement, 4, static_cast<sqlite3_int64>(chunk.start_token));
+    sqlite3_bind_int64(statement, 5, static_cast<sqlite3_int64>(chunk.end_token));
+    sqlite3_bind_blob(statement, 6, chunk.embedding.data(), static_cast<int>(chunk.embedding.size() * sizeof(float)),
+                       SQLITE_TRANSIENT);
+    // 0 is DocumentChunkInput::created_at_unix_seconds's sentinel for "use
+    // the current time" -- a real timestamp is never legitimately exactly
+    // the Unix epoch.
+    const std::int64_t created_at =
+        chunk.created_at_unix_seconds != 0 ? chunk.created_at_unix_seconds : CurrentUnixTimeSeconds();
+    sqlite3_bind_int64(statement, 7, static_cast<sqlite3_int64>(created_at));
+    sqlite3_bind_int64(statement, 8, static_cast<sqlite3_int64>(created_at));
+
+    if (sqlite3_step(statement) != SQLITE_DONE) {
+        throw std::runtime_error(std::string("ChunkRepository::add_documents: failed to insert chunk: ") +
+                                  sqlite3_errmsg(db_));
+    }
+
+    // The chunk's SQLite rowid *is* its usearch key: assigned by SQLite (not
+    // chosen by us), guaranteed unique, and cheap to map back
+    // (WHERE chunk_id = ?) in Resolve(). Reused as-is for chunks_fts's
+    // rowid, so the two stay trivially joinable.
+    return static_cast<std::uint64_t>(sqlite3_last_insert_rowid(db_));
+}
+
+void ChunkRepository::InsertChunkFtsRow(sqlite3_stmt* statement, std::uint64_t chunk_id,
+                                         const std::string& text) const {
+    sqlite3_reset(statement);
+    sqlite3_bind_int64(statement, 1, static_cast<sqlite3_int64>(chunk_id));
+    sqlite3_bind_text(statement, 2, text.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(statement) != SQLITE_DONE) {
+        throw std::runtime_error(
+            std::string("ChunkRepository::add_documents: failed to insert into chunks_fts: ") + sqlite3_errmsg(db_));
+    }
 }
 
 std::size_t ChunkRepository::chunk_count() const {

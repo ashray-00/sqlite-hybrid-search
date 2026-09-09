@@ -70,9 +70,34 @@ std::vector<ChunkSearchResult> ChunkStore::search_sparse(const std::string& quer
     return repository_.SearchSparse(query_text, k);
 }
 
+std::vector<FusionEntry> ChunkStore::Fuse(const std::string& query_text, const std::vector<float>& query_vec,
+                                           std::size_t k) const {
+    return RrfFuse(search_dense(query_vec, k), search_sparse(query_text, k), k);
+}
+
+SearchExplanation ChunkStore::ExplanationFromFusionEntry(const FusionEntry& entry, std::size_t rank) {
+    SearchExplanation explanation;
+    explanation.document_id = entry.document_id;
+    explanation.chunk_index = entry.chunk_index;
+    explanation.text = entry.text;
+    explanation.dense_present = entry.dense_present;
+    explanation.dense_distance = entry.dense_distance;
+    explanation.dense_rank = entry.dense_rank;
+    explanation.sparse_present = entry.sparse_present;
+    explanation.sparse_bm25_score = entry.sparse_bm25_score;
+    explanation.sparse_rank = entry.sparse_rank;
+    explanation.fused_score = entry.fused_score;
+    explanation.final_rank = rank;
+    // created_at_unix_seconds/age_seconds/recency_factor/decayed_score are
+    // left at SearchExplanation's own defaults (see retrieval_engine.hpp) --
+    // meaningful only for search_memory_explained(), which fills them in
+    // itself after calling this.
+    return explanation;
+}
+
 std::vector<ChunkSearchResult> ChunkStore::search_hybrid(const std::string& query_text,
                                                           const std::vector<float>& query_vec, std::size_t k) const {
-    const std::vector<FusionEntry> fused = RrfFuse(search_dense(query_vec, k), search_sparse(query_text, k), k);
+    const std::vector<FusionEntry> fused = Fuse(query_text, query_vec, k);
 
     std::vector<ChunkSearchResult> results;
     results.reserve(fused.size());
@@ -85,25 +110,12 @@ std::vector<ChunkSearchResult> ChunkStore::search_hybrid(const std::string& quer
 std::vector<SearchExplanation> ChunkStore::search_explained(const std::string& query_text,
                                                              const std::vector<float>& query_vec,
                                                              std::size_t k) const {
-    const std::vector<FusionEntry> fused = RrfFuse(search_dense(query_vec, k), search_sparse(query_text, k), k);
+    const std::vector<FusionEntry> fused = Fuse(query_text, query_vec, k);
 
     std::vector<SearchExplanation> explanations;
     explanations.reserve(fused.size());
     for (std::size_t i = 0; i < fused.size(); ++i) {
-        const FusionEntry& entry = fused[i];
-        SearchExplanation explanation;
-        explanation.document_id = entry.document_id;
-        explanation.chunk_index = entry.chunk_index;
-        explanation.text = entry.text;
-        explanation.dense_present = entry.dense_present;
-        explanation.dense_distance = entry.dense_distance;
-        explanation.dense_rank = entry.dense_rank;
-        explanation.sparse_present = entry.sparse_present;
-        explanation.sparse_bm25_score = entry.sparse_bm25_score;
-        explanation.sparse_rank = entry.sparse_rank;
-        explanation.fused_score = entry.fused_score;
-        explanation.final_rank = i + 1;  // 1-based
-        explanations.push_back(std::move(explanation));
+        explanations.push_back(ExplanationFromFusionEntry(fused[i], /*rank=*/i + 1));  // 1-based
     }
     return explanations;
 }
@@ -111,7 +123,7 @@ std::vector<SearchExplanation> ChunkStore::search_explained(const std::string& q
 std::vector<ChunkStore::DecayedEntry> ChunkStore::FuseRankAndDecay(const std::string& query_text,
                                                                     const std::vector<float>& query_vec,
                                                                     std::size_t k, float decay_lambda) const {
-    std::vector<FusionEntry> fused = RrfFuse(search_dense(query_vec, k), search_sparse(query_text, k), k);
+    std::vector<FusionEntry> fused = Fuse(query_text, query_vec, k);
     const std::int64_t now = CurrentUnixTimeSeconds();
 
     std::vector<DecayedEntry> decayed_entries;
@@ -162,19 +174,8 @@ std::vector<SearchExplanation> ChunkStore::search_memory_explained(const std::st
     explanations.reserve(decayed.size());
     for (std::size_t i = 0; i < decayed.size(); ++i) {
         const DecayedEntry& decayed_entry = decayed[i];
-        const FusionEntry& entry = decayed_entry.entry;
-        SearchExplanation explanation;
-        explanation.document_id = entry.document_id;
-        explanation.chunk_index = entry.chunk_index;
-        explanation.text = entry.text;
-        explanation.dense_present = entry.dense_present;
-        explanation.dense_distance = entry.dense_distance;
-        explanation.dense_rank = entry.dense_rank;
-        explanation.sparse_present = entry.sparse_present;
-        explanation.sparse_bm25_score = entry.sparse_bm25_score;
-        explanation.sparse_rank = entry.sparse_rank;
-        explanation.fused_score = entry.fused_score;
-        explanation.final_rank = i + 1;  // 1-based, over the *decayed* order
+        // rank is 1-based, over the *decayed* order (not the raw fused order).
+        SearchExplanation explanation = ExplanationFromFusionEntry(decayed_entry.entry, /*rank=*/i + 1);
         explanation.created_at_unix_seconds = decayed_entry.created_at_unix_seconds;
         explanation.age_seconds = decayed_entry.age_seconds;
         explanation.recency_factor = decayed_entry.recency_factor;

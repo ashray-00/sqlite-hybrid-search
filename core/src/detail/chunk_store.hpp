@@ -55,8 +55,7 @@ private:
     // One fused candidate plus its recency-decay outcome, produced by
     // FuseRankAndDecay() and shared by search_memory()/
     // search_memory_explained() so the fetch/fuse/decay/re-sort logic lives
-    // once (mirroring FuseAndRank()'s role for search_hybrid()/
-    // search_explained()).
+    // once (mirroring Fuse()'s role for search_hybrid()/search_explained()).
     struct DecayedEntry {
         FusionEntry entry;
         std::int64_t created_at_unix_seconds;
@@ -64,6 +63,20 @@ private:
         double recency_factor;
         float decayed_score;
     };
+
+    // Runs search_dense()+search_sparse()+RrfFuse() -- the one fuse step
+    // every search_*() method builds on -- so it's written once instead of
+    // once per caller (search_hybrid(), search_explained(), and
+    // FuseRankAndDecay() all used to call RrfFuse() independently).
+    std::vector<FusionEntry> Fuse(const std::string& query_text, const std::vector<float>& query_vec,
+                                   std::size_t k) const;
+
+    // Builds the shared (non-decay) fields of a SearchExplanation from one
+    // fused entry at the given 1-based rank -- the common core of
+    // search_explained() and search_memory_explained(), which differ only
+    // in which ranking (fused-order vs. decayed-order) supplies `rank` and
+    // whether the recency-decay fields get filled in afterwards.
+    static SearchExplanation ExplanationFromFusionEntry(const FusionEntry& entry, std::size_t rank);
 
     std::vector<DecayedEntry> FuseRankAndDecay(const std::string& query_text, const std::vector<float>& query_vec,
                                                 std::size_t k, float decay_lambda) const;

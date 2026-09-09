@@ -179,6 +179,48 @@ Full suite after the fix: 19/19 `ctest` (17 pre-existing + 2 new regression
 tests), 8/8 `pytest`, zero compiler warnings under
 `-Wall -Wextra -Wpedantic`.
 
+### Post-Stage-4 SOLID/modularity review (user-requested), 3 findings fixed
+
+User asked for a dedicated pass over the whole codebase for SOLID adherence,
+long functions, and duplication. No file was oversized and the existing
+SOLID split held up, but Stage 4's additions introduced real duplication;
+fixed all three cheap, non-breaking findings identified:
+
+1. **`ChunkStore`: the fuse step (`RrfFuse(search_dense(...),
+   search_sparse(...), k)`) was written out identically in three places**
+   (`search_hybrid()`, `search_explained()`, `FuseRankAndDecay()`).
+   Extracted a private `Fuse(query_text, query_vec, k)` helper all three now
+   call. (This also fixes a stale doc comment on `DecayedEntry` that
+   referred to a `FuseAndRank()` helper which never actually existed.)
+2. **`ChunkStore`: `search_explained()` and `search_memory_explained()`
+   each hand-copied the same 10 `FusionEntry` -> `SearchExplanation` field
+   assignments.** Extracted a private static
+   `ExplanationFromFusionEntry(entry, rank)` helper; `search_memory_explained()`
+   now calls it and then overlays just the 4 decay-specific fields on top.
+3. **`ChunkRepository`: dead `StoredChunk` struct**, declared and
+   documented as `ForEachChunk()`'s return shape but never actually
+   constructed anywhere (`ForEachChunk()` uses a raw callback instead).
+   Removed.
+
+Also addressed the one long-function finding: **`ChunkRepository::add_documents()`**
+(85 lines, three interleaved concerns -- document row, chunk row, chunks_fts
+row -- in one nested loop). Split into three private helpers
+(`InsertDocumentRow`, `InsertChunkRow`, `InsertChunkFtsRow`), each taking the
+batch's already-prepared statement (still prepared once per call, not once
+per row) and doing exactly one insert; `add_documents()`'s loop now reads as
+a 3-line sequence of calls to them, with the single BEGIN/COMMIT transaction
+boundary unchanged.
+
+Not fixed, by design -- flagged as non-blocking for a later stage instead:
+**`FuseRankAndDecay()`'s one `GetCreatedAt()` SQL round-trip per fused
+result** (an N+1 query pattern). Bounded by `k` today (small), so a batched
+`WHERE (document_id, chunk_index) IN (...)` lookup was judged premature
+optimization for the current corpus sizes; worth revisiting if a future
+stage needs a much larger `k` for `search_memory()`.
+
+Verified after all four fixes: 19/19 `ctest`, 8/8 `pytest`, zero warnings
+under `-Wall -Wextra -Wpedantic` on a full clean rebuild.
+
 ## Cross-cutting cleanup: removed "Stage N" naming and comments from code (user-requested)
 
 **What happened:** the user pointed out that files and identifiers were
