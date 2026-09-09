@@ -19,6 +19,7 @@ wheel.packages = ["python/retrieval_engine"]
 # Skip fetching/building GoogleTest and the C++ test executables for a
 # Python packaging build -- pip install shouldn't need them.
 RETRIEVAL_ENGINE_BUILD_TESTS = "OFF"
+RETRIEVAL_ENGINE_BUILD_BENCHMARKS = "OFF"
 RETRIEVAL_ENGINE_BUILD_PYTHON_BINDINGS = "ON"
 # Same Homebrew ARM64 path CLAUDE.md's documented C++ build command passes
 # (`cmake -B build -DCMAKE_PREFIX_PATH=/opt/homebrew`), so SQLite3/usearch

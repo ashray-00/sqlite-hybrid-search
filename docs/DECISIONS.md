@@ -1097,3 +1097,94 @@ from scratch-file names (`stage1_test_*.sqlite3` -> `dense_retrieval_test_*`
 etc.); the RED-phase docstrings in the embedder test files were rewritten
 to describe what the tests now cover. `docs/DECISIONS.md` keeps its
 historical stage structure as the build record.
+
+---
+
+## Stage 6 -- Benchmarks + honest writeup
+
+### Decision: benchmark scope re-confirmed against BUILD_PLAN
+
+The run opened with a prompt describing Stage 6 as a "Multi-Agent Serving
+API, Async Web Engine & Observability" (crow/drogon HTTP server, /v1/*
+endpoints, Prometheus /metrics, per-agent session partitioning). That
+contradicts BUILD_PLAN.md, whose Stage 6 is "Benchmarks + honest writeup",
+and the project's stated positioning ("no separate service to run",
+"embeddable, in-process"). Raised the conflict; the user withdrew the
+serving-API prompt and re-issued Stage 6 as the benchmark harness. No
+BUILD_PLAN change needed -- the documented Stage 6 stands. Revisit only if
+a serving layer is ever explicitly added as a later stage.
+
+### Decision: harness lives in benchmarks/, not bench/
+
+BUILD_PLAN.md section 10's suggested layout names the directory `/bench`;
+the Stage 6 task and its RED tests specify `benchmarks/`. Followed the
+explicit task instruction. Files: benchmarks/test_eval.py (RED, present),
+and for GREEN: benchmarks/metrics.py (pure recall_at_k / ndcg_at_k),
+benchmarks/run_eval.py (orchestrator + results.json writer),
+benchmarks/run_benchmarks.cpp (C++ latency + peak-RSS runner).
+
+### RED pass -- state
+
+benchmarks/test_eval.py written and failing as required: 9 tests, all red
+for the intended reasons (no `metrics` module, no `run_eval.py`, so
+benchmarks/results.json is never produced). Contract the tests pin down:
+results.json carries recall_at_10, ndcg_at_10, latency_p50_ms,
+latency_p95_ms, peak_memory_mb both at top level and on every per-(size,
+approach) record; approaches cover dense / sparse / hybrid baselines;
+hybrid nDCG@10 >= dense-only; REPORT_DATASET_SIZES == (1000, 10000,
+100000). C++ build + ctest (35 tests) unaffected and green.
+
+### GREEN + REVIEW -- benchmark harness
+
+Implemented as five focused modules under benchmarks/ (each one concern):
+
+- `metrics.py`   -- pure recall_at_k / ndcg_at_k / mrr_at_k (binary relevance),
+                    no engine or I/O dependency.
+- `corpus.py`    -- seeded synthetic labelled corpus; every relevant doc gets a
+                    unique rare entity token (BM25 signal) plus a shared topic
+                    phrase (dense signal); distractors reuse only common words.
+                    Deterministic (zlib.crc32 hashed-BoW embeddings, seeded RNG).
+- `harness.py`   -- benchmark_size(): ingest once via the native _ext types
+                    (needed for per-chunk timestamps), then measure quality,
+                    warm p50/p95/p99 + throughput, cold first-query latency, and
+                    footprint for dense / sparse / hybrid / hybrid_decay.
+- `run_eval.py`  -- CLI; loops sizes, assembles results.json, merges the native
+                    micro-benchmark when built. REPORT_DATASET_SIZES = 1k/10k/100k.
+- `run_benchmarks.cpp` -- native latency + peak-RSS cross-check, no Python in the
+                    loop; built via benchmarks/CMakeLists.txt behind
+                    RETRIEVAL_ENGINE_BUILD_BENCHMARKS (default = the tests flag;
+                    forced OFF for the pip build in pyproject.toml).
+
+Decision: `benchmarks/results.json` is committed and is required by the tests to
+be the full 1k/10k/100k run. The `test_eval.py` fixtures that exercise a fresh
+`run_eval.py` write to a pytest tmp path instead of the canonical file, so the
+suite never overwrites the shipped artifact with small-corpus data. (The RED
+draft had the test regenerate results.json in place; the review flagged that it
+would clobber the deliverable, hence the split into fresh-run vs committed-artifact
+checks.)
+
+Decision: honest-caveat framing in BENCHMARKS.md. The corpus is synthetic and
+the dense path uses a 64-dim hashed bag-of-words, so sparse numbers are a best
+case and dense numbers a worst case; latency/memory are model-independent. The
+writeup states this up front and reads the quality section as "how RRF behaves
+when the two signals disagree", not as an absolute dense-retrieval score.
+
+Independent review findings:
+- BLOCKER/IMPORTANT: none.
+- MINOR (actioned): added mrr_at_k and corpus determinism/well-formedness unit
+  tests -- the pure metrics only had recall/ndcg hand-checks.
+- MINOR (kept, deliberate): `LabeledCorpus.dim` duplicates the caller-passed dim
+  but is legitimate self-description of the dataset; `_percentile` exists in both
+  Python and C++ (different runtimes, unavoidable, noted in code).
+- Out of scope: `.gitignore` carries a pre-existing "Stage 3+" comment; not
+  touched under scope discipline.
+
+Key results (dim 64, 100 queries, macOS arm64): hybrid holds Recall@10 = 1.000
+at every size while the toy dense path collapses 0.99 -> 0.49; hybrid nDCG@10
+0.95 at 100k (RRF interleaves dense's misses into a perfect BM25 ranking),
+hybrid_decay recovers it to ~0.997. Dense latency stays sub-0.2 ms p50 to 100k;
+sparse/hybrid grow to ~49 ms p50 (FTS5 posting-list scan). Main bottleneck: no
+persisted vector index -- rebuild-on-open is 40 ms / 721 ms / 14.6 s at
+1k / 10k / 100k. Verify: ctest 35/35, `pytest` 30/30 (12 in benchmarks/).
+
+Stage 6 DONE.

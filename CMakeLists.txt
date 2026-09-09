@@ -115,6 +115,15 @@ endif()
 
 add_subdirectory(core)
 
+# Native benchmark harness (benchmarks/). ON alongside the C++ tests by
+# default; the Python packaging build turns both OFF (see pyproject.toml).
+option(RETRIEVAL_ENGINE_BUILD_BENCHMARKS
+    "Build the native retrieval micro-benchmark (benchmarks/run_benchmarks)"
+    ${RETRIEVAL_ENGINE_BUILD_TESTS})
+if(RETRIEVAL_ENGINE_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
+
 if(RETRIEVAL_ENGINE_BUILD_PYTHON_BINDINGS)
     add_subdirectory(bindings)
 endif()
