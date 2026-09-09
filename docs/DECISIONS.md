@@ -5,6 +5,43 @@ stays a plan and this stays a record of what actually happened building it.
 
 ## Stage 1
 
+### Decision: split retrieval_engine.cpp into focused modules (user-requested)
+
+**What happened:** by the end of Stage 1, `retrieval_engine.cpp` had grown
+to 408 lines covering three unrelated concerns (generic SQLite RAII helpers,
+Stage 0's dummy-vector scaffolding, Stage 1's real chunk store) and `Impl`
+was accumulating state for both. The user asked directly whether this should
+be split up along SOLID lines.
+
+**Options considered:** (1) full split -- generic SQLite helpers, each
+store, and the facade all separated into their own files; (2) Stage-1-only
+split, leaving Stage 0's code where it was to avoid touching already-shipped
+code; (3) extract just the generic SQLite helpers and leave both stores'
+logic inline.
+
+**Decision (chosen by the user):** option 1. Resulted in
+`sqlite_util.{hpp,cpp}` (generic), `usearch_util.hpp` (generic, header-only),
+`dummy_vector_store.{hpp,cpp}` (Stage 0, isolated so it's easy to delete
+later), `chunk_store.{hpp,cpp}` (Stage 1's real feature), and
+`retrieval_engine.cpp` reduced to a 63-line thin Pimpl facade delegating to
+the two stores. Deliberately did not force a shared interface between the
+two stores (would satisfy Liskov/DIP on paper but neither caller nor test
+treats them polymorphically today -- abstraction without a present need).
+Pure refactor: all 13 tests passed unmodified throughout, used as the safety
+net rather than re-deriving correctness by inspection.
+
+**Incidental improvement:** introduced a `SqliteConnection` RAII type as
+part of the split, replacing the old "assign `impl_->db` before throwing"
+manual trick that earlier stages relied on for leak-safety. Opening the
+connection is now just another initializer-list member, so a later store's
+constructor throwing during `Impl` construction closes the connection via
+ordinary member-destruction-on-exception rules, no manual sequencing needed.
+
+**Revisit when:** Stage 2 (hybrid/FTS5) or Stage 4 (memory) add their own
+stores -- confirm they follow the same pattern (own table(s), own index if
+any, constructed from a non-owning `sqlite3*`) rather than growing `Impl` or
+an existing store.
+
 ### Blocker: usearch mutations aren't transactional, so a naive add_documents() could desync the index from SQLite on a partial failure
 
 **What happened:** the first GREEN implementation of `add_documents()` called
