@@ -18,6 +18,34 @@ option(RETRIEVAL_ENGINE_BUILD_TESTS "Build the C++ unit tests" ON)
 # extension (`pip install -e .`).
 option(RETRIEVAL_ENGINE_BUILD_PYTHON_BINDINGS "Build the nanobind Python extension module" OFF)
 
+# Build with a sanitizer. Empty (default) = no effect on the normal build.
+# Values: thread | address | undefined | "address;undefined". GCC/Clang only.
+# Used to verify the concurrency model is race-free (see docs/DECISIONS.md
+# ADR-11): `cmake -B build-tsan -DRETRIEVAL_ENGINE_SANITIZE=thread`.
+set(RETRIEVAL_ENGINE_SANITIZE "" CACHE STRING
+    "Sanitizer to build with: thread | address | undefined | address;undefined")
+
+if(RETRIEVAL_ENGINE_SANITIZE)
+    set(_sanitize_flags "")
+    foreach(_san IN LISTS RETRIEVAL_ENGINE_SANITIZE)
+        if(_san STREQUAL "thread")
+            list(APPEND _sanitize_flags -fsanitize=thread)
+        elseif(_san STREQUAL "address")
+            list(APPEND _sanitize_flags -fsanitize=address -fno-omit-frame-pointer)
+        elseif(_san STREQUAL "undefined")
+            list(APPEND _sanitize_flags -fsanitize=undefined -fno-sanitize-recover=all)
+        else()
+            message(FATAL_ERROR "RETRIEVAL_ENGINE_SANITIZE: unknown value '${_san}'")
+        endif()
+    endforeach()
+    if("thread" IN_LIST RETRIEVAL_ENGINE_SANITIZE AND "address" IN_LIST RETRIEVAL_ENGINE_SANITIZE)
+        message(FATAL_ERROR "RETRIEVAL_ENGINE_SANITIZE: 'thread' and 'address' are mutually exclusive")
+    endif()
+    add_compile_options(${_sanitize_flags} -g -O1)
+    add_link_options(${_sanitize_flags})
+    message(STATUS "Sanitizer build: ${RETRIEVAL_ENGINE_SANITIZE}")
+endif()
+
 include(FetchContent)
 
 # --- SQLite3 --------------------------------------------------------------
@@ -41,6 +69,10 @@ if(HOMEBREW_EXECUTABLE)
 endif()
 
 find_package(SQLite3 REQUIRED)
+
+# For std::shared_mutex / std::thread in the core library (pthreads on Linux).
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
 
 # --- usearch (header-only ANN index) ---------------------------------------
 # Fetched via FetchContent rather than assuming a system/Homebrew install
