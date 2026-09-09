@@ -1,4 +1,4 @@
-"""Command-line interface for retrieval_engine (Stage 3, BUILD_PLAN.md):
+"""Command-line interface for retrieval_engine:
 
     engine ingest <folder_path>   Chunk and index every .txt file in a folder.
     engine query "<text query>"   Run a hybrid (dense + sparse) search.
@@ -7,13 +7,12 @@ Both commands operate on an index file in the *current working directory*
 (see _DB_FILENAME) -- `ingest` creates/updates it, `query` reads it. Run
 `query` from the same directory you ran `ingest` from.
 
-Stage 3's scope (BUILD_PLAN.md) is packaging/bindings/CLI, not embeddings:
-"embeddings supplied by caller for now" (BUILD_PLAN.md Stage 1) is still in
-effect, and no embedding model is wired in yet (that's Stage 5). Both
-commands use a small deterministic hashing-trick "embedding" (_hash_embed
-below) purely so the CLI has *something* to feed the dense index end to
-end; it is not a real semantic embedding, and search quality will improve
-once a later stage adds a real model.
+No embedding model is bundled with this engine -- embeddings are always
+supplied by the caller. Both commands here use a small deterministic
+hashing-trick "embedding" (_hash_embed below) purely so the CLI has
+*something* to feed the dense index end to end; it is not a real semantic
+embedding, and search quality will improve once a real embedding model is
+wired in.
 """
 
 from __future__ import annotations

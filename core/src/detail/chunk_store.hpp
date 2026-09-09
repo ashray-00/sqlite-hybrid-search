@@ -11,16 +11,16 @@
 
 struct sqlite3;
 
-// Orchestrates Stage 1 + Stage 2's chunk storage and retrieval: composes a
-// ChunkRepository (SQLite persistence: documents/chunks/chunks_fts) and a
-// DenseIndex (the usearch cosine-similarity sidecar), and implements
-// Reciprocal Rank Fusion (via rrf_fusion.hpp) to combine their results for
-// search_hybrid()/search_explained(). Each collaborator owns one concern and
-// is independently testable -- see their own headers -- ChunkStore's job is
-// only coordination: dimension validation up front, and (per
-// BUILD_PLAN.md section 5's "SQLite is authoritative, usearch is a
-// rebuildable sidecar" architecture) populating DenseIndex only *after*
-// ChunkRepository's SQLite transaction has committed, never before.
+// Orchestrates chunk storage and retrieval: composes a ChunkRepository
+// (SQLite persistence: documents/chunks/chunks_fts) and a DenseIndex (the
+// usearch cosine-similarity sidecar), and implements Reciprocal Rank Fusion
+// (via rrf_fusion.hpp) to combine their results for search_hybrid()/
+// search_explained(). Each collaborator owns one concern and is
+// independently testable -- see their own headers -- ChunkStore's job is
+// only coordination: dimension validation up front, and (per the "SQLite is
+// authoritative, usearch is a rebuildable sidecar" architecture)
+// populating DenseIndex only *after* ChunkRepository's SQLite transaction
+// has committed, never before.
 //
 // Non-owning: does not open or close `db` -- RetrievalEngine::Impl owns the
 // connection and outlives every store built on top of it.

@@ -9,9 +9,9 @@
 namespace retrieval_engine {
 
 // One chunk of a document, ready to be ingested via add_documents(): its
-// text, a caller-supplied embedding for that text (Stage 1 scope: "embeddings
-// supplied by caller for now", per BUILD_PLAN.md Stage 1), and its position
-// within the source document (as produced by chunk_text()).
+// text, a caller-supplied embedding for that text (embeddings are always
+// supplied by the caller -- this engine does not compute them), and its
+// position within the source document (as produced by chunk_text()).
 struct DocumentChunkInput {
     std::string text;
     std::vector<float> embedding;
@@ -20,8 +20,8 @@ struct DocumentChunkInput {
 };
 
 // A document to ingest: a caller-assigned id, opaque caller-defined metadata
-// (Stage 1 does not interpret it -- stored and returned as-is), and its
-// already-chunked, already-embedded content.
+// (not interpreted -- stored and returned as-is), and its already-chunked,
+// already-embedded content.
 struct DocumentInput {
     std::string document_id;
     std::string metadata;
@@ -45,8 +45,8 @@ struct ChunkSearchResult {
 };
 
 // One result's full per-ranking score breakdown, returned by
-// search_explained(). Stage 2 (BUILD_PLAN.md): "a search_explained() that
-// returns the score breakdown (dense score, sparse score, fused rank...)".
+// search_explained(): the dense score/rank, the sparse score/rank, the
+// fused score, and the final rank.
 struct SearchExplanation {
     std::string document_id;
     std::size_t chunk_index;  // position within that document's chunk list, 0-based
@@ -83,9 +83,9 @@ public:
     RetrievalEngine(const std::string& db_path, std::size_t dim);
     ~RetrievalEngine();
 
-    // Stage 1 (BUILD_PLAN.md): stores each document's chunks + metadata in
-    // SQLite (the authoritative store) and adds each chunk's embedding to a
-    // dedicated chunk-search usearch index (cosine similarity), keyed by a
+    // Stores each document's chunks + metadata in SQLite (the authoritative
+    // store) and adds each chunk's embedding to a dedicated chunk-search
+    // usearch index (cosine similarity), keyed by a
     // chunk id this call assigns internally. Persists across re-opening the
     // same `db_path`: a freshly-constructed RetrievalEngine reloads existing
     // chunk rows from SQLite and rebuilds the chunk-search index from them,

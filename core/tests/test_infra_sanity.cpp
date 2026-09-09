@@ -1,9 +1,7 @@
-// Infrastructure sanity checks (originally written for Stage 0's RED phase,
-// see docs/DECISIONS.md). Not about retrieval_engine's own logic: these
-// exercise usearch and SQLite3 directly, independent of RetrievalEngine, so
-// a failure here points at the toolchain/environment rather than our code.
-// Kept after Stage 0's dummy_vector_store was retired because that value
-// doesn't depend on the dummy API at all.
+// Infrastructure sanity checks. Not about retrieval_engine's own logic:
+// these exercise usearch and SQLite3 directly, independent of
+// RetrievalEngine, so a failure here points at the toolchain/environment
+// rather than our code (see docs/DECISIONS.md for the history).
 #include <gtest/gtest.h>
 #include <sqlite3.h>
 #include <usearch/index_dense.hpp>

@@ -25,13 +25,13 @@ $ engine ingest ./docs
 $ engine query "your search text"
 ```
 
-**Status: Stage 3 (Python bindings + CLI).** Hybrid (dense + sparse, RRF-fused)
-retrieval with an explainable score trail is implemented and tested in C++
-(Stages 0-2), now exposed via nanobind bindings, a Python package, and this
-CLI. Chunking is token-window-based (no real tokenizer yet); embeddings are
-caller-supplied everywhere except the CLI's placeholder, no real embedding
-model is bundled yet (Stage 5); memory semantics (recency, dedup, forgetting)
-don't exist yet (Stage 4). Read this file as the pressure-test called for in
+**Status.** Hybrid (dense + sparse, RRF-fused) retrieval with an explainable
+score trail is implemented and tested in C++, exposed via nanobind bindings,
+a Python package, and the CLI above. Chunking is token-window-based (no real
+tokenizer yet); embeddings are caller-supplied everywhere except the CLI's
+placeholder -- no real embedding model is bundled yet; memory semantics
+(recency, dedup, forgetting) don't exist yet. See `BUILD_PLAN.md` for what's
+still ahead. Read this file as the pressure-test called for in
 `BUILD_PLAN.md` section 3: before writing more of this, be honest about
 whether it earns its place next to the obvious shortcut -- the comparison
 below is about what's being built *toward*, not a claim about what's
@@ -110,9 +110,10 @@ and this project would rather admit that than pretend otherwise.
 - **No consistency discipline between the two tables.** The snippet above
   has no story for what happens if a crash lands between writing to `chunks`
   and writing to your metadata table. Getting the write order wrong is easy
-  and easy to miss in one-off glue code -- this project's own Stage 0 review
-  caught exactly that bug in `RetrievalEngine::add_vector()` on day one (see
-  `docs/DECISIONS.md`, "Decision: write SQLite before usearch").
+  and easy to miss in one-off glue code -- an independent review of this
+  project's own `add_documents()` caught exactly that class of bug (usearch
+  populated before the SQLite transaction it depends on had committed; see
+  `docs/DECISIONS.md` for the fix).
 - **No packaging.** No `pip install`, no CLI, no quickstart. Every team that
   wants this pattern re-derives and re-tests it from scratch.
 

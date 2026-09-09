@@ -14,8 +14,8 @@
 #   detail/rrf_fusion.*       pure Reciprocal Rank Fusion math
 #   detail/sqlite_util.*      generic SQLite RAII helpers, shared throughout
 #   detail/usearch_util.hpp   usearch capacity helper (header-only), likewise
-# (Stage 0's scaffolding, detail/dummy_vector_store.*, was removed once
-# Stage 1 shipped the real feature and nothing else depended on it -- see
+# (Earlier scaffolding, detail/dummy_vector_store.*, was removed once the
+# real feature shipped and nothing else depended on it -- see
 # docs/DECISIONS.md.)
 add_library(retrieval_engine_core
     src/chunking.cpp

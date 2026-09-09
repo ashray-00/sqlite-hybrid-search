@@ -1,8 +1,7 @@
-# Builds the nanobind Python extension module (Stage 3, BUILD_PLAN.md).
-# Only pulled in when RETRIEVAL_ENGINE_BUILD_PYTHON_BINDINGS is ON (see the
-# root CMakeLists.txt) -- not part of the plain C++ dev/test build, so
-# `cmake -B build && cmake --build build` for Stage 0-2's workflow is
-# completely unaffected.
+# Builds the nanobind Python extension module. Only pulled in when
+# RETRIEVAL_ENGINE_BUILD_PYTHON_BINDINGS is ON (see the root
+# CMakeLists.txt) -- not part of the plain C++ dev/test build, so
+# `cmake -B build && cmake --build build` is completely unaffected.
 
 # Standard nanobind CMake discovery: ask the active Python interpreter
 # (found via find_package(Python...)) where its installed `nanobind` package

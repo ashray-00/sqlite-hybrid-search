@@ -1,12 +1,10 @@
-// Stage 1 (BUILD_PLAN.md): ingestion + dense retrieval.
+// Document ingestion and dense (vector) retrieval.
 //
 //  1. Chunking.* -- retrieval_engine::chunk_text() (token-window chunker),
 //     core/include/retrieval_engine/chunking.hpp / core/src/chunking.cpp.
-//  2. RetrievalEngineStage1.* -- retrieval_engine::RetrievalEngine's
+//  2. RetrievalEngineDenseSearch.* -- retrieval_engine::RetrievalEngine's
 //     add_documents()/search_dense()/chunk_count() (core/src/detail/
-//     chunk_store.* as of the SOLID-split refactor; see docs/DECISIONS.md),
-//     including the constructor validation RetrievalEngine itself still
-//     owns post-split.
+//     chunk_store.*), including its constructor validation.
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -74,14 +72,14 @@ constexpr std::size_t kDim = 4;
 constexpr std::size_t kNumDocuments = 10;
 constexpr std::size_t kChunksPerDocument = 3;  // 9-token docs, window=5, overlap=2 (see Chunking tests above)
 
-// Builds the 10-document synthetic corpus this file's RetrievalEngineStage1
+// Builds the 10-document synthetic corpus this file's RetrievalEngineDenseSearch
 // tests share: document d's chunks all sit on the same 2D direction
 // (angle d * pi/10, spread across documents so cosine similarity strictly
 // decreases with angular distance), with a tiny per-chunk perturbation in
 // an otherwise-unused dimension so a chunk's own index is the only thing
 // that determines its similarity rank *within* its document. This makes
 // both cross-document and within-document nearest-neighbour order exactly
-// predictable by hand -- see the derivation in RetrievalEngineStage1
+// predictable by hand -- see the derivation in RetrievalEngineDenseSearch
 // comments below.
 std::vector<retrieval_engine::DocumentInput> MakeSyntheticCorpus() {
     std::vector<retrieval_engine::DocumentInput> documents;
@@ -122,14 +120,14 @@ std::vector<float> QueryVectorForDocument(std::size_t d) {
 
 }  // namespace
 
-TEST(RetrievalEngineStage1, ConstructorRejectsZeroDimension) {
+TEST(RetrievalEngineDenseSearch, ConstructorRejectsZeroDimension) {
     const std::string db_path = "stage1_test_zero_dim.sqlite3";
     std::remove(db_path.c_str());
 
     EXPECT_THROW(retrieval_engine::RetrievalEngine(db_path, /*dim=*/0), std::invalid_argument);
 }
 
-TEST(RetrievalEngineStage1, SearchDenseReturnsExpectedDocumentAndPersistsRowCount) {
+TEST(RetrievalEngineDenseSearch, SearchDenseReturnsExpectedDocumentAndPersistsRowCount) {
     const std::string db_path = "stage1_test_search.sqlite3";
     std::remove(db_path.c_str());
 
@@ -162,7 +160,7 @@ TEST(RetrievalEngineStage1, SearchDenseReturnsExpectedDocumentAndPersistsRowCoun
     }
 }
 
-TEST(RetrievalEngineStage1, DataPersistsAfterReopeningDatabase) {
+TEST(RetrievalEngineDenseSearch, DataPersistsAfterReopeningDatabase) {
     const std::string db_path = "stage1_test_persistence.sqlite3";
     std::remove(db_path.c_str());
 
@@ -188,7 +186,7 @@ TEST(RetrievalEngineStage1, DataPersistsAfterReopeningDatabase) {
     EXPECT_EQ(top1[0].chunk_index, 0u);
 }
 
-TEST(RetrievalEngineStage1, AddDocumentsRejectsMismatchedEmbeddingDimension) {
+TEST(RetrievalEngineDenseSearch, AddDocumentsRejectsMismatchedEmbeddingDimension) {
     const std::string db_path = "stage1_test_dim_mismatch.sqlite3";
     std::remove(db_path.c_str());
 
@@ -212,7 +210,7 @@ TEST(RetrievalEngineStage1, AddDocumentsRejectsMismatchedEmbeddingDimension) {
 // row, which the "SQLite authoritative, usearch rebuildable" architecture
 // (BUILD_PLAN.md section 5) cannot recover from. add_documents() must defer
 // every index mutation until after SQLite's transaction commits.
-TEST(RetrievalEngineStage1, FailedBatchLeavesNoPhantomEntriesInChunkIndex) {
+TEST(RetrievalEngineDenseSearch, FailedBatchLeavesNoPhantomEntriesInChunkIndex) {
     const std::string db_path = "stage1_test_rollback.sqlite3";
     std::remove(db_path.c_str());
 

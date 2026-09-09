@@ -6,8 +6,8 @@
 
 // Small, generic SQLite helpers shared by every store in this library. None
 // of this is retrieval_engine-specific -- it would be equally at home
-// wrapping any other SQLite-backed component (Stage 2's FTS5 index, Stage
-// 4's memory tables). Internal implementation detail, not part of the
+// wrapping any other SQLite-backed component (the FTS5 sparse index, a
+// future memory store). Internal implementation detail, not part of the
 // public API: colocated with its .cpp in core/src/, not under include/.
 namespace retrieval_engine::detail {
 

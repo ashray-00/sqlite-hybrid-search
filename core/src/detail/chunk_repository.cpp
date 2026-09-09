@@ -38,7 +38,7 @@ ChunkRepository::ChunkRepository(sqlite3* db, std::size_t dim) : db_(db), dimens
                                      nullptr, nullptr, nullptr),
                         db_, "ChunkRepository: failed to create chunks table");
 
-    // Stage 2's sparse index. A plain (not "external content") FTS5 table,
+    // The sparse index. A plain (not "external content") FTS5 table,
     // populated explicitly with `rowid` set to the matching chunk_id -- see
     // add_documents() -- rather than sourcing content from `chunks` (SQLite's
     // recommended pattern for indexing an existing column without
@@ -58,11 +58,12 @@ std::vector<std::pair<std::uint64_t, const std::vector<float>*>> ChunkRepository
 
     // One transaction for the whole batch: ingesting is dominated by
     // per-statement fsync overhead if each row auto-commits individually,
-    // which would make "ingest 10k chunks" (BUILD_PLAN.md Stage 1) far
-    // slower than it needs to be. If anything below throws, the catch block
-    // rolls back so SQLite never ends up with a partially-committed batch
-    // (across documents, chunks, *and* chunks_fts -- all three are plain
-    // SQLite tables inside this one transaction).
+    // which would make ingesting large corpora (tens of thousands of
+    // chunks) far slower than it needs to be. If anything below throws,
+    // the catch block rolls back so SQLite never ends up with a
+    // partially-committed batch (across documents, chunks, *and*
+    // chunks_fts -- all three are plain SQLite tables inside this one
+    // transaction).
     ThrowIfSqliteError(sqlite3_exec(db_, "BEGIN;", nullptr, nullptr, nullptr), db_,
                         "ChunkRepository::add_documents: failed to begin transaction");
 

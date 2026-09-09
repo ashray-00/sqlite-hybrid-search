@@ -3,6 +3,43 @@
 Decision log across stages. Kept separate from BUILD_PLAN.md so the plan
 stays a plan and this stays a record of what actually happened building it.
 
+## Cross-cutting cleanup: removed "Stage N" naming and comments from code (user-requested)
+
+**What happened:** the user pointed out that files and identifiers were
+named after build-plan stages (`test_stage1.cpp`, `test_stage2.cpp`,
+`tests/test_stage3.py`, GTest suites `RetrievalEngineStage1`/
+`RetrievalEngineStage2`) and that inline comments throughout the source
+referenced "Stage N (BUILD_PLAN.md)" -- correctly: a stage number is
+internal build-plan bookkeeping, not something that describes what a file
+or class *does*, and not something a user of the library needs to know.
+
+**Fix:** renamed by function, not by build order:
+- `core/tests/test_stage1.cpp` -> `test_chunking_and_dense_retrieval.cpp`
+- `core/tests/test_stage2.cpp` -> `test_hybrid_retrieval.cpp`
+- `tests/test_stage3.py` -> `test_bindings_and_cli.py`
+- GTest suites `RetrievalEngineStage1`/`RetrievalEngineStage2` ->
+  `RetrievalEngineDenseSearch`/`RetrievalEngineHybridSearch`
+- CMake targets/executables renamed to match.
+
+Swept every `.cpp`/`.hpp`/`.py`/`CMakeLists.txt`/`README.md` for "Stage N"
+references and rewrote them to describe the actual behavior/architecture
+instead (e.g. "BUILD_PLAN.md Stage 1" -> "embeddings are always supplied by
+the caller"). Found and fixed one unrelated staleness while at it: an
+anecdote in README.md cited `RetrievalEngine::add_vector()`, a method
+removed when Stage 0's dummy scaffolding was retired -- replaced with the
+still-current equivalent example (the `add_documents()` write-ordering fix).
+
+**Deliberately left alone:** `docs/DECISIONS.md` (this file) and
+`BUILD_PLAN.md` -- both are explicitly stage-structured process/planning
+documents, not code or user-facing library documentation; scrubbing "stage"
+from a file whose entire purpose is a staged build plan or a decision log
+organized by stage would defeat its purpose. `CLAUDE.md` (the user's own
+project-instructions file) was likewise left untouched.
+
+Verified behavior-preserving: all 15 C++ tests + 5 Python tests pass
+unmodified after every rename, confirmed with a clean `rm -rf build` +
+`pip install -e .` + `pytest` cycle.
+
 ## Stage 3
 
 ### Decision: Python Engine API adapted to existing C++ functionality, not invented fresh

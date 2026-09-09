@@ -52,9 +52,8 @@ std::vector<FusionEntry> RrfFuse(const std::vector<ChunkSearchResult>& dense_res
 
     // Break ties on fused_score deterministically (by document_id then
     // chunk_index) rather than leaving them to std::sort's unspecified
-    // handling of equal elements -- an explainability feature (BUILD_PLAN.md
-    // Stage 2) should give the same, reproducible ordering for the same
-    // input every time.
+    // handling of equal elements -- an explainability feature should give
+    // the same, reproducible ordering for the same input every time.
     std::sort(sorted_entries.begin(), sorted_entries.end(), [](const FusionEntry& a, const FusionEntry& b) {
         if (a.fused_score != b.fused_score) return a.fused_score > b.fused_score;
         if (a.document_id != b.document_id) return a.document_id < b.document_id;

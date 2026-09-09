@@ -16,10 +16,9 @@ struct Chunk {
     std::size_t end_token;
 };
 
-// Splits `text` into overlapping token windows (BUILD_PLAN.md Stage 1:
-// "token-window with overlap to start"). A "token" is a maximal run of
-// non-whitespace characters -- Stage 1 has no real tokenizer yet, callers
-// supply embeddings externally regardless of how text is tokenized.
+// Splits `text` into overlapping token windows. A "token" is a maximal run
+// of non-whitespace characters -- there is no real NLP tokenizer here;
+// callers supply embeddings externally regardless of how text is tokenized.
 //
 // `window_tokens` is the number of tokens per chunk; `overlap_tokens` is how
 // many trailing tokens of one chunk are repeated at the start of the next.

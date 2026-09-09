@@ -1,7 +1,7 @@
 // Nanobind bindings for retrieval_engine::RetrievalEngine, chunk_text(), and
-// their supporting structs (Stage 3, BUILD_PLAN.md). Deliberately kept close
-// to the actual C++ API -- ergonomic adaptation for Python (dict-shaped
-// documents, plain-dict results) lives in the pure-Python Engine wrapper
+// their supporting structs. Deliberately kept close to the actual C++ API --
+// ergonomic adaptation for Python (dict-shaped documents, plain-dict
+// results) lives in the pure-Python Engine wrapper
 // (python/retrieval_engine/__init__.py), not here. This module is compiled
 // as `_retrieval_engine_ext` and imported only by that package, never
 // directly by end users (see its own docstring for why).
@@ -68,7 +68,7 @@ NB_MODULE(_retrieval_engine_ext, m) {
     // Exposed as "NativeEngine", not "Engine": the public, documented
     // Python-facing class is retrieval_engine.Engine (a pure-Python wrapper
     // over this), with a friendlier ingestion shape -- see
-    // python/retrieval_engine/__init__.py and docs/DECISIONS.md Stage 3.
+    // python/retrieval_engine/__init__.py and docs/DECISIONS.md.
     nb::class_<RetrievalEngine>(m, "NativeEngine")
         // Opening an existing database rebuilds the entire dense index from
         // every persisted chunk (BUILD_PLAN.md section 5's "rebuild the

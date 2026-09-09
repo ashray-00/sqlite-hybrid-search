@@ -11,8 +11,8 @@ namespace retrieval_engine {
 // of the public header. A thin composition of the one SQLite connection and
 // the ChunkStore built on top of it -- see core/src/detail/chunk_store.hpp
 // for its own docs, and docs/DECISIONS.md for the retired DummyVectorStore
-// that used to sit alongside it (Stage 0's scaffolding, removed once Stage 1
-// shipped the real feature and nothing else depended on it).
+// that used to sit alongside it (early scaffolding, removed once the real
+// feature shipped and nothing else depended on it).
 //
 // Both members are constructed via the initializer list, in declaration
 // order (connection, then the store that needs it already open), so

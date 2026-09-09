@@ -1,4 +1,4 @@
-"""Stage 3 (BUILD_PLAN.md): Python bindings + CLI.
+"""Python bindings and CLI for the retrieval engine.
 
   1. Bindings.* -- `import retrieval_engine`, the nanobind extension module
      (bindings/python_bindings.cpp) wrapping retrieval_engine::RetrievalEngine
@@ -7,15 +7,15 @@
   2. Cli.* -- the `engine` console-script CLI (`engine ingest`,
      `engine query`), python/retrieval_engine/cli.py.
 
-Python-facing Engine API this file specifies -- resolved by re-reading
-core/include/retrieval_engine/retrieval_engine.hpp before writing this (see
-docs/DECISIONS.md for the full mapping from what was asked to what the C++
-engine actually exposes):
+Python-facing Engine API this file specifies (see docs/DECISIONS.md for the
+full mapping from what was originally asked to what the C++ engine actually
+exposes):
 
     Engine(db_path: str, dim: int)
         Mirrors RetrievalEngine(db_path, dim) exactly. No index_path: the
         core engine has no file-based index persistence, only SQLite +
-        rebuild-on-open (BUILD_PLAN.md section 5).
+        rebuild-on-open (see the architecture note in
+        core/include/retrieval_engine/retrieval_engine.hpp).
     engine.add(documents, embeddings)
         documents: list of {"id": str, "text": str, "metadata": str}.
         embeddings: a parallel list of list[float], one per document.
@@ -23,7 +23,8 @@ engine actually exposes):
         single DocumentChunkInput (the whole document as one chunk) --
         add_documents() functionality, exposed at a simpler granularity.
         (Multi-chunk documents are chunk_text()'s own territory, already
-        covered by Stage 1's tests -- not what this smoke test is for.)
+        covered by test_chunking_and_dense_retrieval.cpp -- not what this
+        smoke test is for.)
     engine.search(query_vec, top_k) -> search_dense()
     engine.search_hybrid(query_text, query_vec, top_k) -> search_hybrid()
         (name and shape already match the C++ method exactly)

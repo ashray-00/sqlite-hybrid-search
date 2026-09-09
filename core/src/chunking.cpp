@@ -23,8 +23,8 @@ std::vector<Chunk> chunk_text(const std::string& text, std::size_t window_tokens
     // locale-sensitive -- so there's no need to pay istringstream's cost for
     // generality we don't use: a global-locale lookup on construction and a
     // virtual call through its streambuf for every character extracted.
-    // This runs once per document ingested, and BUILD_PLAN.md's own Stage 1
-    // scale target ("ingestion of 10k chunks") makes it worth avoiding.
+    // This runs once per document ingested, and ingesting large corpora
+    // (tens of thousands of chunks) makes the cost worth avoiding.
     // Tokens are non-owning string_views into `text` -- no per-token
     // allocation until a chunk's text is assembled below.
     std::vector<std::string_view> tokens;

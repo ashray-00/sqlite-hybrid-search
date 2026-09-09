@@ -29,3 +29,5 @@ wheelhouse/
 
 # OS cruft
 .DS_Store
+
+test_docs/

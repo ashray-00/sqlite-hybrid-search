@@ -1,18 +1,14 @@
-// Stage 2 (BUILD_PLAN.md) -- TDD RED phase.
-//
-// This file has:
+// Hybrid retrieval: sparse (FTS5/BM25) search fused with dense search via
+// Reciprocal Rank Fusion, plus the explainable score breakdown.
 //
 //  1. FtsLibrary.* -- exercises SQLite FTS5 directly (create a virtual
 //     table, index rows, rank by bm25()). FTS5 is an optional, compile-time
 //     SQLite feature -- not guaranteed by every build -- so this proves the
 //     linked SQLite3 actually has it, independent of anything below.
-//  2. RetrievalEngineStage2.* -- exercises RetrievalEngine's
-//     search_dense()/search_sparse()/search_hybrid()/search_explained(),
-//     declared in retrieval_engine.hpp but with NO implementation anywhere
-//     yet (no FTS5 sync, no RRF fusion, no explain logic). Calling them is
-//     expected to make the build FAIL with an undefined-symbol (linker)
-//     error -- that is the correct, expected result for this pass. Do not
-//     "fix" it by adding an implementation; that is Phase 2 (GREEN).
+//  2. RetrievalEngineHybridSearch.* -- exercises RetrievalEngine's
+//     search_dense()/search_sparse()/search_hybrid()/search_explained()
+//     (core/src/detail/chunk_store.*, chunk_repository.*, rrf_fusion.*,
+//     fts5_query.*).
 #include <gtest/gtest.h>
 #include <sqlite3.h>
 
@@ -75,7 +71,7 @@ const std::vector<float> kQueryVector = {1.0f, 0.0f, 0.0f, 0.0f};
 // text contains a unique, exact term a keyword search finds trivially, but
 // whose embedding is orthogonal to the query -- dense search alone ranks it
 // dead last. Hybrid (RRF) fusion is expected to recover it to rank 1: see
-// the RRF arithmetic in RetrievalEngineStage2 test comments below.
+// the RRF arithmetic in RetrievalEngineHybridSearch test comments below.
 std::vector<retrieval_engine::DocumentInput> MakeCorpusWhereSparseAndDenseDisagree() {
     std::vector<retrieval_engine::DocumentInput> documents;
 
@@ -115,7 +111,7 @@ std::vector<retrieval_engine::DocumentInput> MakeCorpusWhereSparseAndDenseDisagr
 
 }  // namespace
 
-TEST(RetrievalEngineStage2, EveryChunkIsSearchableBySparseText) {
+TEST(RetrievalEngineHybridSearch, EveryChunkIsSearchableBySparseText) {
     const std::string db_path = "stage2_test_sync.sqlite3";
     std::remove(db_path.c_str());
 
@@ -138,7 +134,7 @@ TEST(RetrievalEngineStage2, EveryChunkIsSearchableBySparseText) {
 // as literal text. A hyphenated word or an unbalanced quote -- both
 // completely ordinary in real search input -- must not throw, and must
 // still find the intended chunk by its literal text.
-TEST(RetrievalEngineStage2, SearchSparseTreatsSpecialCharactersAsLiteralText) {
+TEST(RetrievalEngineHybridSearch, SearchSparseTreatsSpecialCharactersAsLiteralText) {
     const std::string db_path = "stage2_test_sanitization.sqlite3";
     std::remove(db_path.c_str());
 
@@ -166,7 +162,7 @@ TEST(RetrievalEngineStage2, SearchSparseTreatsSpecialCharactersAsLiteralText) {
     EXPECT_TRUE(results.empty());
 }
 
-TEST(RetrievalEngineStage2, HybridRanksExactTermMatchHigherThanDenseAlone) {
+TEST(RetrievalEngineHybridSearch, HybridRanksExactTermMatchHigherThanDenseAlone) {
     const std::string db_path = "stage2_test_hybrid.sqlite3";
     std::remove(db_path.c_str());
 
@@ -197,7 +193,7 @@ TEST(RetrievalEngineStage2, HybridRanksExactTermMatchHigherThanDenseAlone) {
     EXPECT_EQ(hybrid_results.front().document_id, "target");
 }
 
-TEST(RetrievalEngineStage2, SearchExplainedReturnsFullScoreBreakdown) {
+TEST(RetrievalEngineHybridSearch, SearchExplainedReturnsFullScoreBreakdown) {
     const std::string db_path = "stage2_test_explain.sqlite3";
     std::remove(db_path.c_str());
 

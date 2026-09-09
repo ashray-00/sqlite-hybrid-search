@@ -6,9 +6,9 @@
 #include <string>
 #include <vector>
 
-// Pure Reciprocal Rank Fusion math (BUILD_PLAN.md Stage 2): no SQLite or
-// usearch dependency -- operates only on already-computed, already-ordered
-// result lists -- so it's independently unit-testable with hand-fed data.
+// Pure Reciprocal Rank Fusion math: no SQLite or usearch dependency --
+// operates only on already-computed, already-ordered result lists -- so
+// it's independently unit-testable with hand-fed data.
 // Internal implementation detail, not part of the public API.
 namespace retrieval_engine::detail {
 

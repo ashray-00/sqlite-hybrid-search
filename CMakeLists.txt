@@ -5,14 +5,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Stage 0 (see BUILD_PLAN.md): skeleton project wiring together SQLite3 and
-# usearch. No engine logic is implemented yet -- that is intentional, this is
-# the TDD "RED" pass (a failing test must exist before any implementation).
-
 option(RETRIEVAL_ENGINE_BUILD_TESTS "Build the C++ unit tests" ON)
-# Stage 3: OFF by default so the plain C++ dev/test build
-# (`cmake -B build && cmake --build build`) is completely unaffected; turned
-# ON by pyproject.toml's scikit-build-core config when building the Python
+# OFF by default so the plain C++ dev/test build (`cmake -B build &&
+# cmake --build build`) is completely unaffected; turned ON by
+# pyproject.toml's scikit-build-core config when building the Python
 # extension (`pip install -e .`).
 option(RETRIEVAL_ENGINE_BUILD_PYTHON_BINDINGS "Build the nanobind Python extension module" OFF)
 
@@ -39,8 +35,8 @@ endif()
 find_package(SQLite3 REQUIRED)
 
 # --- usearch (header-only ANN index) ---------------------------------------
-# Fetched via FetchContent per the Stage 0 plan, rather than assuming a
-# system/Homebrew install (usearch is not packaged in Homebrew).
+# Fetched via FetchContent rather than assuming a system/Homebrew install
+# (usearch is not packaged in Homebrew).
 FetchContent_Declare(
     usearch
     GIT_REPOSITORY https://github.com/unum-cloud/usearch.git
