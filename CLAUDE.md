@@ -39,6 +39,7 @@ Every feature or bug fix must strictly follow the 3-phase TDD cycle:
 
 ### Phase 3: REFACTOR & REVIEW (Clean Up & Verify)
 - Refactor the code for readability, performance, RAII/memory safety, and architecture adherence.
+- Apply the Modularity, SOLID & Cleanliness Checklist (section 5a of the Independent Review Principle): split oversized files/functions, keep one responsibility per component, delete dead/unused code, reuse per-call allocations, and strip any stage-number vocabulary from code, comments, identifiers, and fixture filenames.
 - Ensure all tests REMAIN green after refactoring.
 - Run static analysis, linting, or compiler warning checks.
 
@@ -89,6 +90,18 @@ Write production-quality, clear, idiomatic code:
 After implementation, STOP acting as the author. Perform a separate review as an independent senior engineer reviewing another developer's pull request.
 - Review for: **Correctness**, **Architecture**, **Maintainability**, **Reliability**, **Concurrency**, **Performance**, **Security**, and **Test Sufficiency**.
 
+### 5a. Modularity, SOLID & Cleanliness Checklist (verify every item)
+Independent review MUST explicitly check and record a verdict on each of these. Treat a violation as at least an `IMPORTANT` finding.
+- **Single Responsibility:** every file/class/function does one thing. A constructor that also introspects/validates, a function that both computes and formats, or a class juggling two concerns must be split.
+- **Small files:** no source file should be a catch-all. As a guideline, a non-test implementation file over ~300 lines, or a function over ~60 lines, needs a justification or a split. Prefer many focused `detail/` components (header + .cpp per concern) over one large module.
+- **Dependency Inversion at seams:** depend on interfaces/abstractions, not concrete backends. A new backend (embedder, index, store, runtime) must slot in behind an existing interface without touching callers.
+- **No dead or speculative code:** no unused members, functions, parameters, includes, files, CMake entries, or `(void)x;`-silenced leftovers. If it is not used now, delete it.
+- **No duplicated logic:** shared behavior lives in one helper, not copy-pasted.
+- **Per-call allocation sweep:** for hot paths (anything called per query/request/item), check that immutable helpers (memory-info objects, buffers, lookup tables) are built once and reused, not re-created or copied every call. Flag needless heap allocations and copies.
+- **Stage-vocabulary cleanup:** source code, comments, test names, identifiers, and scratch/fixture filenames must NOT reference build stages or process phases ("Stage N", "stage3_test", "Pass A/B", "RED phase left this…"). Comments describe what the code does and why, not when in the build it was added. Only `BUILD_PLAN.md` and `docs/DECISIONS.md` may carry stage history.
+- **Files named for purpose:** no file, target, or fixture named after a stage/ticket/phase. Rename by function. After finishing a stage, grep the tree for stage-numbered names and comments and remove them.
+- **Comments explain why:** no comments that merely restate the code or narrate history; no stale comments describing a prior (e.g. pre-implementation) state.
+
 ## 6. Review Must Be Independent
 Use this mental model: *"Assume the implementation contains at least one important mistake. My job is to find it."*
 
@@ -119,3 +132,4 @@ A task/stage is **DONE** only when:
 - Stage-specific requirements from `BUILD_PLAN.md` are satisfied.
 - Tests were written FIRST and are passing (`ctest` green).
 - Independent review was completed with all `BLOCKER` and `IMPORTANT` findings resolved.
+- The Modularity, SOLID & Cleanliness Checklist (section 5a) passes: focused single-responsibility components, no oversized files, no dead/unused code, per-call allocations reused, and zero stage-number vocabulary in code, comments, identifiers, or fixture filenames (grep the tree to confirm).
