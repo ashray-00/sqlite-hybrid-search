@@ -1,7 +1,7 @@
 // Infrastructure sanity checks. Not about retrieval_engine's own logic:
 // these exercise usearch and SQLite3 directly, independent of
 // RetrievalEngine, so a failure here points at the toolchain/environment
-// rather than our code (see docs/DECISIONS.md for the history).
+// rather than our code (see docs/dev-log.md for the history).
 #include <gtest/gtest.h>
 #include <sqlite3.h>
 #include <usearch/index_dense.hpp>

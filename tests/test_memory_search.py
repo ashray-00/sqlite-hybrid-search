@@ -27,7 +27,7 @@ def _add_two_chunk_corpus_with_explicit_timestamps(engine: retrieval_engine.Engi
     "recent" (slightly lower raw similarity, brand new) corpus the C++ test
     uses -- built directly against the native module, since the friendly
     Engine.add() wrapper doesn't expose per-chunk timestamps (see
-    docs/DECISIONS.md).
+    docs/dev-log.md).
     """
     now = int(time.time())
 

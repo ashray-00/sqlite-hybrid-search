@@ -80,7 +80,7 @@ NB_MODULE(_retrieval_engine_ext, m) {
     // Exposed as "NativeEngine", not "Engine": the public, documented
     // Python-facing class is retrieval_engine.Engine (a pure-Python wrapper
     // over this), with a friendlier ingestion shape -- see
-    // python/retrieval_engine/__init__.py and docs/DECISIONS.md.
+    // python/retrieval_engine/__init__.py and docs/dev-log.md.
     nb::class_<RetrievalEngine>(m, "NativeEngine")
         // Opening an existing database rebuilds the entire dense index from
         // every persisted chunk (usearch is a rebuildable sidecar) --

@@ -6,7 +6,7 @@
 // dimension mismatch, failed-reload-keeps-previous).
 //
 // These tests use a tiny *mock* model file (see WriteMockModel() and
-// docs/DECISIONS.md for its documented contract) rather than a real
+// docs/dev-log.md for its documented contract) rather than a real
 // ONNX/GGUF model: the loader recognizes the mock header and activates a
 // deterministic, dependency-free embedder (lexical-overlap cosine
 // similarity), so the end-to-end text path is exercised here with no
@@ -34,7 +34,7 @@ namespace {
 constexpr std::size_t kEmbeddingDim = 384;
 
 // Writes the mock embedding-model file the tests point load_embedding_model()
-// at. Contract (also recorded in docs/DECISIONS.md): a file whose first
+// at. Contract (also recorded in docs/dev-log.md): a file whose first
 // line is exactly "RETRIEVAL_ENGINE_MOCK_EMBEDDING_MODEL v1" followed by a
 // "dim=<n>" line selects a built-in deterministic test embedder instead of
 // a real ONNX/GGUF runtime.

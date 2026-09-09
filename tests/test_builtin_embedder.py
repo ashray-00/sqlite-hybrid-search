@@ -13,7 +13,7 @@ suites (core/tests/test_builtin_embedder.cpp, core/tests/test_onnx_embedder.cpp)
 this file confirms the same capability is reachable from Python and the CLI.
 
 Most tests use a tiny *mock* model file rather than a real ONNX/GGUF model
-(see _write_mock_model() and docs/DECISIONS.md for the contract). The two
+(see _write_mock_model() and docs/dev-log.md for the contract). The two
 tests that need the real all-MiniLM-L6-v2 model skip when it is absent.
 """
 
@@ -45,7 +45,7 @@ def _onnx_model_path() -> Path:
 
 
 def _write_mock_model(path) -> str:
-    """Writes the mock embedding-model file (see module docstring / DECISIONS.md).
+    """Writes the mock embedding-model file (see module docstring / dev-log.md).
 
     First line selects a deterministic, dependency-free test embedder in
     place of a real ONNX/GGUF runtime.

@@ -18,7 +18,7 @@ struct sqlite3_stmt;
 // written together inside a single BEGIN/COMMIT in add_documents() -- unlike
 // the usearch dense index (see dense_index.hpp), which is not transactional
 // and must only be populated once that transaction has committed. See
-// docs/DECISIONS.md for the SOLID-split rationale.
+// docs/dev-log.md for the SOLID-split rationale.
 //
 // Non-owning: does not open or close `db` -- RetrievalEngine::Impl owns the
 // connection and outlives every store built on top of it.

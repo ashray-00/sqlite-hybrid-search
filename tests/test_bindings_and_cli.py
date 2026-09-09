@@ -7,7 +7,7 @@
   2. Cli.* -- the `engine` console-script CLI (`engine ingest`,
      `engine query`), python/retrieval_engine/cli.py.
 
-Python-facing Engine API this file specifies (see docs/DECISIONS.md for how
+Python-facing Engine API this file specifies (see docs/dev-log.md for how
 it maps onto the C++ methods it wraps):
 
     Engine(db_path: str, dim: int)

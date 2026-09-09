@@ -67,7 +67,7 @@ class Engine:
     (the whole document text). For multi-chunk ingestion (long documents
     split via chunk_text()), build DocumentInput/DocumentChunkInput objects
     directly against the native module instead -- see cli.py's `ingest`
-    command for an example. See docs/DECISIONS.md for why this mapping
+    command for an example. See docs/dev-log.md for why this mapping
     exists rather than a 1:1 mirror of the C++ API.
     """
 

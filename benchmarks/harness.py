@@ -12,7 +12,7 @@ process memory / on-disk footprint.
 
 Ingestion goes through the native _retrieval_engine_ext types rather than
 the friendly Engine.add() wrapper because the decay approach needs per-chunk
-timestamps, which the wrapper does not expose (see docs/DECISIONS.md).
+timestamps, which the wrapper does not expose (see docs/dev-log.md).
 """
 
 from __future__ import annotations
