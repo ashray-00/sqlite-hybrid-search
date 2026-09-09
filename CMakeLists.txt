@@ -42,7 +42,11 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/unum-cloud/usearch.git
     GIT_TAG v2.9.2
     GIT_SHALLOW TRUE
-    GIT_SUBMODULES "" # header-only usage on ARM64 needs no submodules (see BUILD_PLAN notes)
+    # Only the `fp16` submodule: usearch's headers include <fp16/fp16.h> on
+    # targets without native _Float16 (x86_64 without AVX512 -- ARM and
+    # AVX512 use the compiler's own half type). `simsimd`/`stringzilla` are
+    # not referenced by the header subset this project uses.
+    GIT_SUBMODULES "fp16"
 )
 FetchContent_GetProperties(usearch)
 if(NOT usearch_POPULATED)
@@ -63,6 +67,9 @@ endif()
 add_library(usearch INTERFACE)
 add_library(usearch::usearch ALIAS usearch)
 target_include_directories(usearch SYSTEM INTERFACE "${usearch_SOURCE_DIR}/include")
+if(EXISTS "${usearch_SOURCE_DIR}/fp16/include")
+    target_include_directories(usearch SYSTEM INTERFACE "${usearch_SOURCE_DIR}/fp16/include")
+endif()
 
 # --- ONNX Runtime (built-in embedding backend) ---------------------------
 # The real embed()/add_text()/search_text() backend runs a local ONNX
