@@ -221,6 +221,26 @@ stage needs a much larger `k` for `search_memory()`.
 Verified after all four fixes: 19/19 `ctest`, 8/8 `pytest`, zero warnings
 under `-Wall -Wextra -Wpedantic` on a full clean rebuild.
 
+### `engine query --explain` CLI flag added
+
+The user asked how to get `search_memory_explained()`'s full score
+breakdown from `engine query` and there was no way to -- the CLI's `query`
+command only ever called `search_memory()` and printed a plain
+`(score=...)` line; `search_explained()`/`search_memory_explained()` were
+reachable from Python but not wired into the CLI at all. Added a
+`--explain` flag (RED test first: `test_cli_query_supports_explain_flag`
+asserted on `dense_rank`/`sparse_rank`/`fused_score`/`recency_factor`/
+`decayed_score` appearing in stdout, confirmed failing with argparse's
+"unrecognized arguments: --explain" before implementing). GREEN:
+`--explain` switches `_cmd_query()` to call `search_memory_explained()`
+instead of `search_memory()` and prints each result's full breakdown
+(dense/sparse presence+score+rank, fused score, age/recency
+factor/decayed score) using the same field names as the underlying
+`SearchExplanation` struct, rather than a plain score line. Composes with
+`--decay` (e.g. `engine query "..." --decay 0.1 --explain`); `--decay`'s
+existing "0 is a no-op" behavior is unchanged. Verified: 9/9 `pytest`
+(1 new), 19/19 `ctest` (untouched, re-run to confirm no regression).
+
 ## Cross-cutting cleanup: removed "Stage N" naming and comments from code (user-requested)
 
 **What happened:** the user pointed out that files and identifiers were

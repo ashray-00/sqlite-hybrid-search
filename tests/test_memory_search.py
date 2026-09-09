@@ -116,3 +116,32 @@ def test_cli_query_supports_decay_flag(tmp_path):
     )
     assert query.returncode == 0, f"query failed: {query.stderr}"
     assert query.stdout.strip() != ""
+
+
+def test_cli_query_supports_explain_flag(tmp_path):
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "sample.txt").write_text("the quick brown fox", encoding="utf-8")
+
+    ingest = subprocess.run(
+        [str(ENGINE_CLI), "ingest", str(docs_dir)], capture_output=True, text=True, cwd=tmp_path
+    )
+    assert ingest.returncode == 0, f"ingest failed: {ingest.stderr}"
+
+    query = subprocess.run(
+        [str(ENGINE_CLI), "query", "fox", "--decay", "0.05", "--explain"],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+    assert query.returncode == 0, f"query failed: {query.stderr}"
+    # --explain should surface the full per-result score breakdown, not just
+    # the plain "score" line the default output prints.
+    for expected_field in (
+        "dense_rank",
+        "sparse_rank",
+        "fused_score",
+        "recency_factor",
+        "decayed_score",
+    ):
+        assert expected_field in query.stdout, f"{expected_field!r} missing from --explain output:\n{query.stdout}"

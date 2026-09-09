@@ -1,8 +1,12 @@
 """Command-line interface for retrieval_engine:
 
-    engine ingest <folder_path>            Chunk and index every .txt file in a folder.
-    engine query "<text query>" [--decay]  Run a hybrid (dense + sparse) search,
-                                            optionally discounted by recency.
+    engine ingest <folder_path>                      Chunk and index every .txt
+                                                       file in a folder.
+    engine query "<text query>" [--decay] [--explain] Run a hybrid (dense +
+                                                       sparse) search, optionally
+                                                       discounted by recency and/or
+                                                       printed with a full score
+                                                       breakdown.
 
 Both commands operate on an index file in the *current working directory*
 (see _DB_FILENAME) -- `ingest` creates/updates it, `query` reads it. Run
@@ -13,6 +17,11 @@ of the hybrid score -- e.g. `--decay 0.05` discounts results at
 e^(-0.05 * age_days); the default, 0, disables decay entirely (identical
 results to a plain hybrid search). See
 RetrievalEngine::search_memory()'s doc comment for the exact formula.
+
+`query`'s `--explain` prints each result's full per-ranking score breakdown
+(dense distance/rank, sparse bm25/rank, fused score, age/recency
+factor/decayed score) instead of just the final score -- backed by
+RetrievalEngine::search_memory_explained().
 
 No embedding model is bundled with this engine -- embeddings are always
 supplied by the caller. Both commands here use a small deterministic
@@ -125,16 +134,36 @@ def _cmd_query(args: argparse.Namespace) -> int:
 
     try:
         engine = _ext.NativeEngine(str(db_path), _DEFAULT_DIM)
-        # decay=0 is mathematically a no-op (e^0 == 1), so search_memory()
-        # with the default --decay is identical to a plain hybrid search --
-        # no need to branch between two different native calls.
-        results = engine.search_memory(args.text, _hash_embed(args.text), args.top_k, args.decay)
+        query_vec = _hash_embed(args.text)
+        # decay=0 is mathematically a no-op (e^0 == 1), so search_memory()/
+        # search_memory_explained() with the default --decay are identical
+        # to a plain hybrid search -- no need to branch between decayed and
+        # non-decayed native calls.
+        if args.explain:
+            results = engine.search_memory_explained(args.text, query_vec, args.top_k, args.decay)
+        else:
+            results = engine.search_memory(args.text, query_vec, args.top_k, args.decay)
     except Exception as error:  # noqa: BLE001 -- surface any engine failure as a clean CLI error
         print(f"engine query: error: {error}", file=sys.stderr)
         return 1
 
     if not results:
         print("No results.")
+        return 0
+
+    if args.explain:
+        for rank, explanation in enumerate(results, start=1):
+            print(
+                f"{rank}. [{explanation.document_id}] {explanation.text}\n"
+                f"   dense_present={explanation.dense_present} dense_distance={explanation.dense_distance:.4f} "
+                f"dense_rank={explanation.dense_rank}\n"
+                f"   sparse_present={explanation.sparse_present} sparse_bm25_score={explanation.sparse_bm25_score:.6f} "
+                f"sparse_rank={explanation.sparse_rank}\n"
+                f"   fused_score={explanation.fused_score:.4f}  "
+                f"age_seconds={explanation.age_seconds:.1f}  "
+                f"recency_factor={explanation.recency_factor:.4f}  "
+                f"decayed_score={explanation.decayed_score:.4f}"
+            )
         return 0
 
     for rank, result in enumerate(results, start=1):
@@ -159,6 +188,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.0,
         dest="decay",
         help="Recency decay lambda (default: 0, i.e. no decay). Larger values discount older results more.",
+    )
+    query_parser.add_argument(
+        "--explain",
+        action="store_true",
+        help="Print the full per-result score breakdown (dense/sparse/fused/decay) instead of just the score.",
     )
     query_parser.set_defaults(func=_cmd_query)
 
