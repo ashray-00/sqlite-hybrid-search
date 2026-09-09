@@ -1,18 +1,21 @@
 # The core engine library.
 #
-# retrieval_engine.cpp is a thin Pimpl facade implementing the public
-# interface (include/retrieval_engine/retrieval_engine.hpp) by delegating to
-# chunk_store.cpp (the real feature), which in turn shares the generic
-# SQLite RAII helpers in sqlite_util.cpp and the usearch capacity helper in
-# usearch_util.hpp (header-only). chunking.cpp implements the token-window
-# chunker, used by callers directly rather than by ChunkStore. (Stage 0's
-# scaffolding, dummy_vector_store.cpp, was removed once Stage 1 shipped the
-# real feature and nothing else depended on it -- see docs/DECISIONS.md.)
+# Layout mirrors include/ vs src/ one level deeper: src/ holds the
+# translation units implementing the *public* API (retrieval_engine.cpp,
+# chunking.cpp), each internal (non-public) component's header and .cpp live
+# together under src/detail/, matching the retrieval_engine::detail
+# namespace they're in --
+#   detail/chunk_store.*    Stage 1's real feature, used by retrieval_engine.cpp
+#   detail/sqlite_util.*    generic SQLite RAII helpers, shared by detail/ components
+#   detail/usearch_util.hpp usearch capacity helper (header-only), shared likewise
+# (Stage 0's scaffolding, detail/dummy_vector_store.*, was removed once
+# Stage 1 shipped the real feature and nothing else depended on it -- see
+# docs/DECISIONS.md.)
 add_library(retrieval_engine_core
-    src/chunk_store.cpp
     src/chunking.cpp
+    src/detail/chunk_store.cpp
+    src/detail/sqlite_util.cpp
     src/retrieval_engine.cpp
-    src/sqlite_util.cpp
 )
 add_library(retrieval_engine::core ALIAS retrieval_engine_core)
 

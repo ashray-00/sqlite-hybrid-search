@@ -1,7 +1,7 @@
 #include "retrieval_engine/retrieval_engine.hpp"
 
-#include "chunk_store.hpp"
-#include "sqlite_util.hpp"
+#include "detail/chunk_store.hpp"
+#include "detail/sqlite_util.hpp"
 
 #include <stdexcept>
 
@@ -9,10 +9,10 @@ namespace retrieval_engine {
 
 // The private implementation (Pimpl idiom) -- keeps usearch/SQLite types out
 // of the public header. A thin composition of the one SQLite connection and
-// the ChunkStore built on top of it -- see core/src/chunk_store.hpp for its
-// own docs, and docs/DECISIONS.md for the retired DummyVectorStore that used
-// to sit alongside it (Stage 0's scaffolding, removed once Stage 1 shipped
-// the real feature and nothing else depended on it).
+// the ChunkStore built on top of it -- see core/src/detail/chunk_store.hpp
+// for its own docs, and docs/DECISIONS.md for the retired DummyVectorStore
+// that used to sit alongside it (Stage 0's scaffolding, removed once Stage 1
+// shipped the real feature and nothing else depended on it).
 //
 // Both members are constructed via the initializer list, in declaration
 // order (connection, then the store that needs it already open), so

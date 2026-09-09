@@ -3,9 +3,10 @@
 //  1. Chunking.* -- retrieval_engine::chunk_text() (token-window chunker),
 //     core/include/retrieval_engine/chunking.hpp / core/src/chunking.cpp.
 //  2. RetrievalEngineStage1.* -- retrieval_engine::RetrievalEngine's
-//     add_documents()/search_chunks()/chunk_count() (core/src/chunk_store.*
-//     as of the SOLID-split refactor; see docs/DECISIONS.md), including the
-//     constructor validation RetrievalEngine itself still owns post-split.
+//     add_documents()/search_chunks()/chunk_count() (core/src/detail/
+//     chunk_store.* as of the SOLID-split refactor; see docs/DECISIONS.md),
+//     including the constructor validation RetrievalEngine itself still
+//     owns post-split.
 #include <gtest/gtest.h>
 
 #include <cmath>
