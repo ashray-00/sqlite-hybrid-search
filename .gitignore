@@ -1,0 +1,31 @@
+# Build outputs
+build/
+build-*/
+cmake-build-*/
+out/
+
+# Python virtual environment / bytecode
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Python packaging artifacts (Stage 3+)
+*.egg-info/
+dist/
+wheelhouse/
+
+# SQLite databases produced by running the engine/tests
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+
+# OS cruft
+.DS_Store
