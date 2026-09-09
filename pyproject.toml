@@ -51,6 +51,19 @@ engine = "retrieval_engine.cli:main"
 [tool.scikit-build]
 wheel.packages = ["python/retrieval_engine"]
 
+# The wheel already carries only the compiled extension + the Python
+# package. Trim dev-only scaffold from the source distribution too -- it
+# still has everything needed to build (core/, bindings/, python/, cmake/,
+# CMakeLists.txt, LICENSE, README.md, docs/DECISIONS.md, the test suites).
+sdist.exclude = [
+    "CLAUDE.md",
+    "BUILD_PLAN.md",
+    "docs/dev-log.md",
+    "benchmarks/results.json",
+    ".clang-format",
+    ".gitignore",
+]
+
 [tool.scikit-build.cmake.define]
 # Skip fetching/building GoogleTest and the C++ test executables for a
 # Python packaging build -- pip install shouldn't need them.
