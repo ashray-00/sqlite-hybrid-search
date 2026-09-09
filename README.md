@@ -1,140 +1,230 @@
-# Embeddable Retrieval & Memory Engine
+# retrieval-engine
 
-A local-first, in-process retrieval + memory engine in C++17, with Python
-bindings via nanobind. See `BUILD_PLAN.md` for the full plan and
-`docs/DECISIONS.md` for the build log.
+**Ultra-fast, in-process hybrid search & agent memory engine in C++17 with Python bindings.**
 
-## Quickstart
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)
+![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB.svg)
+![PyPI](https://img.shields.io/badge/PyPI-unpublished-lightgrey.svg)
+
+Drop it **inside** an app to give a local LLM two things it lacks: knowledge of
+your private data (RAG) and memory that survives across sessions — with **no
+vector database to run and no cloud**. SQLite is the source of truth; a usearch
+HNSW index is a rebuildable in-memory sidecar.
+
+---
+
+## Why this exists
+
+| | |
+|---|---|
+| **Embedded / zero-service** | One process, one SQLite file, an in-memory index. No Docker, no daemon, no port. A query is a function call — sub-millisecond for dense search (see [benchmarks](#empirical-benchmarks-verified)). |
+| **Hybrid retrieval** | Dense vector search (usearch, cosine HNSW) **+** sparse keyword search (SQLite FTS5 / BM25), fused by **Reciprocal Rank Fusion** (RRF, k=60). Rank-based fusion — no score normalisation, no per-query tuning. |
+| **Agent memory** | Exponential recency decay — `score × e^(−λ·age_days)` — so a fresher, slightly-less-similar memory can outrank a stale one. `λ = 0` is an exact no-op. |
+| **Explainable** | `search_explained()` returns the full per-result score trail: dense distance & rank, BM25 score & rank, fused score, recency factor, decayed score. |
+| **Bring your own embeddings** | The core takes caller-supplied vectors and computes nothing. An optional built-in embedder (ONNX Runtime, e.g. all-MiniLM-L6-v2) is layered on top for a text-in path. |
+
+---
+
+## Install
+
+Not yet published to PyPI. Build from source (needs a C++17 toolchain, CMake ≥ 3.24,
+and SQLite; usearch is fetched automatically):
+
+```console
+git clone https://github.com/<owner>/retrieval-engine   # your fork/repo URL
+cd retrieval-engine
+python -m venv .venv && .venv/bin/pip install -e .
+```
+
+On macOS/ARM64, install SQLite via Homebrew first (`brew install sqlite`) and
+configure with `-DCMAKE_PREFIX_PATH=/opt/homebrew`. The built-in ONNX embedder
+is optional — without ONNX Runtime installed, the engine still builds and the
+caller-supplied-vector path is unaffected.
+
+---
+
+## Quickstart (Python)
 
 ```python
 import retrieval_engine
 
-engine = retrieval_engine.Engine("my_index.sqlite3", dim=4)
-engine.add(documents=[{"id": "doc-1", "text": "the quick brown fox"}],
-           embeddings=[[1.0, 0.0, 0.0, 0.0]])
-print(engine.search([1.0, 0.0, 0.0, 0.0], top_k=1))
+engine = retrieval_engine.Engine("memory.sqlite3", dim=3)
+
+# Ingest documents with caller-supplied embeddings (one vector per document).
+engine.add(
+    documents=[
+        {"id": "home", "text": "I live in Munich, Germany."},
+        {"id": "pet",  "text": "My cat is named Pixel."},
+    ],
+    embeddings=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+)
+
+# Hybrid search: dense vector + BM25 keyword, RRF-fused.
+hits = engine.search_hybrid("Where do I live?", [1.0, 0.0, 0.0], top_k=2)
+print(hits[0]["document_id"], hits[0]["score"])          # -> home 0.0328
+
+# Memory retrieval: same, discounted by recency (decay_lambda=0 disables it).
+recall = engine.search_memory("Where do I live?", [1.0, 0.0, 0.0], top_k=2, decay_lambda=0.1)
+
+# Full score breakdown for one result.
+trail = engine.search_explained("Where do I live?", [1.0, 0.0, 0.0], top_k=1)[0]
+print(trail["dense_rank"], trail["sparse_rank"], trail["fused_score"], trail["recency_factor"])
 ```
 
-Or from the command line, over a folder of `.txt` files (see the CLI's own
-`--help` for details; it uses a placeholder hashing-trick embedding, not a
-real model -- see `python/retrieval_engine/cli.py`'s docstring):
+Per-chunk timestamps (so recency decay can actually reorder results) are set
+through the native `retrieval_engine._retrieval_engine_ext` types — see
+`tests/test_memory_search.py`.
+
+## Quickstart (CLI)
+
+The `engine` console script chunks a folder of `.txt` files into an index in the
+current directory. It uses a deterministic hashing stand-in for embeddings unless
+you pass `--model` / `--model-dim`.
 
 ```console
-$ pip install -e .
 $ engine ingest ./docs
-$ engine query "your search text"
+Ingested 2 document(s), 2 chunk(s), into /path/to/cwd/.retrieval_engine.sqlite3
+
+$ engine query "where do I live" --decay 0.1
+1. [notes.txt] (score=0.0328) I live in Munich. My office is near the river.
+2. [work.txt] (score=0.0161) The quarterly report is due on Friday.
+
+$ engine query "where do I live" --decay 0.1 --explain    # full score trail
 ```
 
-**Status.** Hybrid (dense + sparse, RRF-fused) retrieval with an explainable
-score trail is implemented and tested in C++, exposed via nanobind bindings,
-a Python package, and the CLI above. Chunking is token-window-based (no real
-tokenizer yet); embeddings are caller-supplied everywhere except the CLI's
-placeholder -- no real embedding model is bundled yet; memory semantics
-(recency, dedup, forgetting) don't exist yet. See `BUILD_PLAN.md` for what's
-still ahead. Read this file as the pressure-test called for in
-`BUILD_PLAN.md` section 3: before writing more of this, be honest about
-whether it earns its place next to the obvious shortcut -- the comparison
-below is about what's being built *toward*, not a claim about what's
-finished.
+---
 
-## Why not just sqlite-vec?
+## Empirical benchmarks (verified)
 
-[`sqlite-vec`](https://github.com/asg017/sqlite-vec) is a real, legitimate
-answer to "I want an embeddable vector index with no service to run." It is
-not a toy, and this project does not compete with it at the index layer --
-see `BUILD_PLAN.md` section 3. Here is roughly what using it directly looks
-like, in Python:
+Reproduce with `python benchmarks/run_eval.py`; full method and raw data in
+[`BENCHMARKS.md`](BENCHMARKS.md) and [`benchmarks/results.json`](benchmarks/results.json).
+Machine: Apple Silicon (macOS arm64), single thread, embedding dim 64, 100 labelled queries.
 
-```python
-import sqlite3
-import sqlite_vec
-from sqlite_vec import serialize_float32
+> **Read the corpus honestly.** It is synthetic, and the `dense` column uses a
+> 64-dim hashed bag-of-words, not a trained model — so `sparse` is a best case
+> and `dense` a worst case. Latency and memory are model-independent and
+> transfer directly; the quality table shows *how RRF behaves when the two
+> signals disagree*, not an absolute score for dense retrieval.
 
-DIM = 4
+### Retrieval quality (Recall@10 / nDCG@10)
 
-db = sqlite3.connect("notes.db")
-db.enable_load_extension(True)
-sqlite_vec.load(db)
-db.enable_load_extension(False)
+| Approach | 1k | 10k | 100k |
+|---|---|---|---|
+| Dense only | 0.987 / 0.944 | 0.783 / 0.752 | 0.493 / 0.507 |
+| Sparse only (BM25) | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 |
+| **Hybrid (RRF)** | **1.000 / 0.992** | **1.000 / 0.969** | **1.000 / 0.951** |
+| Hybrid + recency decay | 1.000 / 0.998 | 1.000 / 0.998 | 1.000 / 0.997 |
 
-db.execute(f"""
-    CREATE VIRTUAL TABLE IF NOT EXISTS chunks
-    USING vec0(embedding float[{DIM}])
-""")
+Hybrid recovers **every point of recall the dense path loses at scale** (1.000
+vs 0.493 at 100k) — RRF lets the keyword side carry the query when the vector
+side degrades.
 
-def add_chunk(rowid: int, embedding: list[float]) -> None:
-    db.execute(
-        "INSERT INTO chunks(rowid, embedding) VALUES (?, ?)",
-        [rowid, serialize_float32(embedding)],
-    )
-    db.commit()
+### Latency (warm cache, single thread)
 
-def search(query_embedding: list[float], k: int = 5):
-    return db.execute(
-        """
-        SELECT rowid, distance FROM chunks
-        WHERE embedding MATCH ?
-        ORDER BY distance LIMIT ?
-        """,
-        [serialize_float32(query_embedding), k],
-    ).fetchall()
+| Approach | 1k p50 / p99 | 100k p50 / p99 | 100k throughput |
+|---|---|---|---|
+| Dense | 0.088 / 0.097 ms | 0.171 / 0.203 ms | 5,770 q/s |
+| Hybrid | 0.530 / 0.549 ms | 48.8 / 54.6 ms | 20 q/s |
 
-add_chunk(1, [0.10, 0.20, 0.30, 0.40])
-add_chunk(2, [0.20, 0.10, 0.40, 0.30])
+Dense stays **sub-0.2 ms p50 at 100k**. Sparse/hybrid latency is dominated by
+FTS5 and grows with corpus size — the main query-time bottleneck.
 
-for rowid, distance in search([0.12, 0.19, 0.29, 0.41], k=1):
-    print(rowid, distance)
+### Memory & storage footprint
+
+| | 1k | 10k | 100k |
+|---|---|---|---|
+| SQLite on disk | 0.57 MB | 5.2 MB | 52 MB |
+| Peak RSS (Python-driven) | 36 MB | 79 MB | 431 MB |
+| Index rebuild on open | 40 ms | 0.7 s | 14.6 s |
+
+The native C++ cross-check (`benchmarks/run_benchmarks.cpp`) puts the
+**engine-only peak RSS at ~37 MB for 20,000 documents** — most of the
+Python-driven figure is the benchmark driver holding the corpus, not the engine.
+
+---
+
+## Comparison
+
+| | **retrieval-engine** | sqlite-vec + glue | ChromaDB | Qdrant / Milvus / Weaviate |
+|---|---|---|---|---|
+| Deployment | in-process library, 1 file | in-process (SQLite ext) | embedded lib **or** server | separate server / cluster |
+| Process to run | none | none | none (embedded) / one (server) | one+ |
+| Dense + sparse hybrid | built in (RRF) | DIY (wire up FTS5 + fusion) | dense-first | built in (server-side) |
+| Recency / memory semantics | built in (`search_memory`) | DIY | DIY | DIY (metadata + custom scoring) |
+| Score-trail / explainability | `search_explained()` | DIY | limited | varies |
+| Text + metadata storage | SQLite (authoritative) | second table you design | built in | built in |
+| Chunking | token-window built in | DIY | some | DIY / integrations |
+| Vector-index persistence | rebuilt from SQLite on open | rows in SQLite | persisted | persisted |
+| Ops surface | none | none | small | real (scaling, backups, upgrades) |
+| Best fit | desktop / CLI / edge agents, local-first, privacy | you already live in SQLite | Python RAG prototypes | multi-tenant, large-scale, networked |
+
+**Reach for a dedicated vector DB instead** if you need a persisted ANN index
+with no rebuild cost, horizontal scale, multi-writer concurrency, or sub-10 ms
+keyword search over millions of documents.
+
+---
+
+## C++ integration
+
+The public header exposes no usearch or SQLite types (Pimpl idiom); the only
+hard dependency is SQLite (usearch is fetched by CMake).
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(retrieval_engine
+    GIT_REPOSITORY https://github.com/<owner>/retrieval-engine
+    GIT_TAG main)
+FetchContent_MakeAvailable(retrieval_engine)
+
+target_link_libraries(your_target PRIVATE retrieval_engine::core)
 ```
 
-That's roughly 30 lines, and it works: dense ANN search, persisted in one
-SQLite file, no server. If that's all you need, use it -- it's a fine tool
-and this project would rather admit that than pretend otherwise.
+```cpp
+#include "retrieval_engine/retrieval_engine.hpp"
 
-### What those 30 lines don't give you
+retrieval_engine::RetrievalEngine engine("memory.sqlite3", /*dim=*/384);
 
-- **Nowhere for the text or metadata to live.** `vec0` stores the vector.
-  The document text, source, and timestamps need a second table you design,
-  populate, and join back to `chunks.rowid` yourself, in every project that
-  uses this pattern.
-- **No chunking.** You bring already-chunked text; the chunking strategy
-  (window size, overlap) is yours to write and re-write per project.
-- **Dense-only retrieval.** No BM25/FTS5 integration, no fusion. Exact
-  matches on a name, an ID, or a rare term -- the case dense embeddings are
-  worst at -- get no help here (`BUILD_PLAN.md` section 2).
-- **No reranking, no explainability.** No cross-encoder pass, no way to see
-  *why* a result ranked where it did (dense score vs. sparse score vs. fused
-  rank vs. rerank score).
-- **No memory semantics.** No recency weighting, no dedup-or-update when a
-  fact is restated, no namespaces, no forgetting policy. This is the part
-  Mem0/Zep/Letta charge for, and `vec0` has no opinion on any of it.
-- **No consistency discipline between the two tables.** The snippet above
-  has no story for what happens if a crash lands between writing to `chunks`
-  and writing to your metadata table. Getting the write order wrong is easy
-  and easy to miss in one-off glue code -- an independent review of this
-  project's own `add_documents()` caught exactly that class of bug (usearch
-  populated before the SQLite transaction it depends on had committed; see
-  `docs/DECISIONS.md` for the fix).
-- **No packaging.** No `pip install`, no CLI, no quickstart. Every team that
-  wants this pattern re-derives and re-tests it from scratch.
+retrieval_engine::DocumentInput doc;
+doc.document_id = "home";
+doc.chunks.push_back({ "I live in Munich.", embedding /*std::vector<float>*/, 0, 4 });
+engine.add_documents({ doc });
 
-### The honest part
+auto hits = engine.search_hybrid("Where do I live?", query_vec, /*k=*/5);
+auto memory = engine.search_memory("Where do I live?", query_vec, /*k=*/5, /*decay_lambda=*/0.1f);
+```
 
-"Embeddable" is not the differentiator -- `sqlite-vec` is embeddable too, and
-pretending otherwise would be the strawman `BUILD_PLAN.md` section 3
-explicitly warns against. The actual gap is that nobody ships the *whole*
-pipeline (chunk -> hybrid dense+sparse retrieval -> RRF fusion -> rerank ->
-explain) plus memory semantics (dedup, recency decay, namespaces, forgetting)
-as one tested, embeddable, no-LLM-required C++ library with clean bindings.
-The closest thing that does is `semantic-memory`, a Rust crate with the same
-SQLite-authoritative + vector-sidecar shape this project uses -- which
-validates the idea, while being Rust-only and library-level (no bindings,
-no CLI) is exactly the room a well-packaged C++ + Python version can fill.
+A single instance is **not thread-safe** — confine it to one thread or lock
+externally (one instance per thread, each with its own SQLite connection).
 
-The bet this project is making: most people reach for `sqlite-vec` (or roll
-their own with `usearch` directly) and then quietly rebuild the six bullet
-points above, worse, once per project, because nothing packages them
-together. If that bet is wrong -- if the 30 lines above really do cover 90%
-of what people need -- this project isn't worth finishing. Each stage in
-`BUILD_PLAN.md` is designed to test that bet against something measurable
-(recall/nDCG, hybrid-vs-dense-only quality, memory-recall correctness)
-rather than assert it.
+---
+
+## Project layout
+
+```
+core/        C++17 engine (chunking, dense index, FTS5, RRF fusion, recency decay)
+bindings/    nanobind extension module
+python/      retrieval_engine package (friendly wrapper + `engine` CLI)
+benchmarks/  reproducible recall / latency / memory harness
+docs/        architecture decision records + development log
+```
+
+## Building & testing
+
+```console
+cmake -B build -DCMAKE_PREFIX_PATH=/opt/homebrew && cmake --build build
+ctest --test-dir build --output-on-failure      # C++ suite
+.venv/bin/pytest                                 # Python + CLI suite
+```
+
+## Contributing
+
+Issues and pull requests welcome. The project follows a strict TDD workflow
+(failing test first, then implementation, then an independent review pass) and
+enforces formatting with `.clang-format` (C++) and `ruff` (Python). Run both
+test suites before opening a PR. Design rationale is recorded as ADRs in
+[`docs/DECISIONS.md`](docs/DECISIONS.md).
+
+## License
+
+[MIT](LICENSE) © 2026 Ashray Adhikari

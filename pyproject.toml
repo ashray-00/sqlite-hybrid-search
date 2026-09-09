@@ -5,9 +5,45 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "retrieval-engine"
 version = "0.1.0"
-description = "Embeddable Retrieval & Memory Engine: local-first hybrid (dense + sparse) retrieval, no server required."
+description = "Ultra-fast, in-process hybrid search & agent memory engine in C++17 with Python bindings."
 readme = "README.md"
 requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Ashray Adhikari", email = "adhikariashray@gmail.com" }]
+keywords = [
+    "retrieval",
+    "rag",
+    "vector-search",
+    "hybrid-search",
+    "bm25",
+    "reciprocal-rank-fusion",
+    "agent-memory",
+    "embeddings",
+    "sqlite",
+    "usearch",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database :: Database Engines/Servers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Indexing",
+]
+
+# Fill in the real repository URL before publishing to PyPI.
+# [project.urls]
+# Homepage = "https://github.com/OWNER/retrieval-engine"
+# Repository = "https://github.com/OWNER/retrieval-engine"
+# Documentation = "https://github.com/OWNER/retrieval-engine/blob/main/README.md"
 
 [project.scripts]
 engine = "retrieval_engine.cli:main"

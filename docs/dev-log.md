@@ -1188,3 +1188,35 @@ persisted vector index -- rebuild-on-open is 40 ms / 721 ms / 14.6 s at
 1k / 10k / 100k. Verify: ctest 35/35, `pytest` 30/30 (12 in benchmarks/).
 
 Stage 6 DONE.
+
+---
+
+## Release preparation (cleanup, docs, packaging)
+
+- **Formatting configs added.** `.clang-format` (Google base, 120-col, 4-space
+  indent) applied across `core/`, `bindings/`, `benchmarks/` -- whitespace and
+  continuation-indent only, no behaviour change. `[tool.ruff]` added to
+  `pyproject.toml` (line-length 120, `E/F/W/I/UP/B/C4/SIM`); `ruff format` +
+  autofix applied to `python/`, `tests/`, `benchmarks/`.
+- **Comment pruning.** Removed development-history narration from code comments:
+  retired `DummyVectorStore` scaffolding references, "this stage" / "for now" /
+  "later stage" phrasing, and inward-facing "BUILD_PLAN.md section N" citations
+  (the architectural statements themselves were kept). No stage/TODO markers
+  remained in `core/`, `bindings/`, `python/`, `tests/`, `benchmarks/`.
+- **DECISIONS.md restructured** into ADR form (Context / Decision /
+  Consequences), 9 entries. This file (`dev-log.md`) is the archived raw log;
+  in-code `docs/DECISIONS.md` references were repointed here.
+- **README.md rewritten** from verified state (was a stale Stage-0 essay).
+  Every command example and benchmark number was run/checked before inclusion;
+  the synthetic-corpus caveat is carried over from `BENCHMARKS.md`.
+- **Packaging.** `LICENSE` added (MIT, per user choice). `pyproject.toml`
+  `[project]` gained `license`, `authors`, `keywords`, `classifiers`; a
+  commented `[project.urls]` block is left for the real repo URL.
+  `pyproject-build` produces `retrieval_engine-0.1.0` sdist + wheel; `twine
+  check` passes both; the wheel installs into a clean venv and passes an
+  API + CLI smoke.
+- **Known packaging limitation (revisit before PyPI).** The built extension
+  links `libsqlite3` and `libonnxruntime` by absolute Homebrew paths, so the
+  wheel is not portable as-is. Real distribution needs `delocate`/`auditwheel`
+  to bundle them, or a build that treats ONNX Runtime as a runtime-optional
+  dependency. `[project.urls]` also needs the real repository URL filled in.
