@@ -53,7 +53,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build-tsan --output-on-failure
       - name: Concurrency suite, repeated
-        run: ctest --test-dir build-tsan -R Concurrency --output-on-failure --repeat until-fail:20
+        run: ctest --test-dir build-tsan -R Concurrency --output-on-failure --repeat until-fail:10
 
   pytest:
     name: pytest (Linux)

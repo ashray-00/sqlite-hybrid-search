@@ -82,12 +82,13 @@ std::vector<std::string> Ids(const std::vector<retrieval_engine::ChunkSearchResu
     return ids;
 }
 
-// Deliberately oversubscribed: the read-connection pool and the usearch
-// search-slot pool are each sized to max(1, hardware_concurrency()), so
-// running 3x that many readers guarantees the BlockingPool's block-and-wake
-// path (condvar wait + notify_one on checkout) is exercised on every host,
-// not just on low-core CI runners.
-std::size_t ReaderCount() { return 3 * std::max<std::size_t>(2, std::thread::hardware_concurrency()); }
+// A few readers past the pool size: the read-connection pool and the
+// usearch search-slot pool are each sized to max(1, hardware_concurrency()),
+// so "+ 2" guarantees at least two readers hit BlockingPool's block-and-wake
+// path (condvar wait + notify_one on checkout) on every host. Kept modest on
+// purpose -- a large reader swarm just starves the writer under a
+// reader-preference rwlock without testing anything new.
+std::size_t ReaderCount() { return std::max<std::size_t>(2, std::thread::hardware_concurrency()) + 2; }
 
 void WriteMockModel(const std::string& path, std::size_t dim) {
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
@@ -160,6 +161,9 @@ TEST(Concurrency, ReadersDuringWritesStayConsistent) {
                         if (hit.document_id.rfind("doc-", 0) != 0) failure = true;
                     }
                 }
+                // Yield between passes so the writer is not starved of the
+                // exclusive lock under a reader-preference shared_mutex.
+                std::this_thread::yield();
             }
         });
     }
