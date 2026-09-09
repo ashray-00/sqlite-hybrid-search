@@ -5,6 +5,66 @@ stays a plan and this stays a record of what actually happened building it.
 
 ## Stage 2
 
+### Decision: split ChunkStore into 4 components + a thin orchestrator, renamed ChunkSearchResult::distance to score (user-requested)
+
+**What happened:** by the end of Stage 2, `chunk_store.cpp` had grown to 440
+lines covering four distinct concerns (SQLite persistence for
+documents/chunks/chunks_fts, the usearch dense index, FTS5 query
+sanitization, RRF fusion math) bundled into one class. The user asked
+directly whether it needed splitting along SOLID lines and whether any
+names needed improving.
+
+**Options considered for the split:** (1) extract only the two pure,
+storage-agnostic pieces (RRF math, FTS5 sanitization) and leave persistence
+(schema + add_documents + search_dense/search_sparse) together in
+ChunkStore, since the write path's atomicity across chunks/chunks_fts/
+usearch is a real, load-bearing reason to keep it coupled; (2) a full
+4-component split.
+
+**Decision (chosen by the user):** option 2. Resulted in:
+- `ChunkRepository` -- SQLite persistence: schema for *all three* of
+  documents/chunks/chunks_fts (grouped together deliberately: all three are
+  plain, durable, transactional SQLite constructs written atomically in one
+  `add_documents()` transaction), plus `Resolve()` and `SearchSparse()`.
+- `DenseIndex` -- a thin usearch wrapper with zero SQLite dependency, only
+  integer keys and vectors in and out.
+- `fts5_query.{hpp,cpp}` -- `BuildSafeFts5MatchQuery()` as a pure free
+  function (not a class: it's stateless data transformation, matching the
+  existing `sqlite_util`/`usearch_util` free-function pattern rather than
+  forcing OOP ceremony onto logic that doesn't need identity or state).
+- `rrf_fusion.{hpp,cpp}` -- `RrfFuse()`, also a pure free function, named to
+  match BUILD_PLAN.md's own literal `rrf_fuse(dense_results, sparse_results)`
+  naming.
+- `ChunkStore` -- reduced to a 107-line orchestrator: composes
+  `ChunkRepository` + `DenseIndex`, validates dimensions up front, and
+  enforces the "populate DenseIndex only after ChunkRepository's SQLite
+  transaction commits" ordering (the Stage 1 review finding) at the
+  coordination layer instead of inline.
+
+**Interface note:** `ChunkRepository::ForEachChunk()` (used to rebuild
+`DenseIndex` on open) hands the visitor an owned `std::vector<float>` per
+chunk rather than a raw pointer into the SQLite blob, which the prior
+combined implementation used directly with zero extra copying. This adds
+one extra copy per chunk during rebuild-on-open only (not on the
+`add_documents()` ingestion path BUILD_PLAN.md's "10k chunks" target
+concerns). Chose the simpler, uniform `vector<float>`-everywhere interface
+over a zero-copy visitor/raw-pointer scheme: at realistic scale (10k chunks
+x a few hundred floats each) the extra copy is on the order of tens of
+milliseconds, once, at process startup if reopening an existing database --
+not worth the interface complexity to avoid.
+
+**Also fixed:** `ChunkSearchResult::distance` renamed to `score`.
+`distance` wrongly implied "lower is better" universally, but
+`search_hybrid()`'s fused RRF score is higher-is-better -- the opposite
+convention, in a field that had to apologize for its own name in its doc
+comment. Breaking change to the public header, done now because Stage 3's
+Python bindings don't exist yet to make it expensive later. No test
+directly read the field, so this needed no test changes.
+
+Pure refactor otherwise: all 15 tests passed unmodified throughout, zero
+warnings under `-Wall -Wextra -Wpedantic`, verified with a clean
+`rm -rf build` cycle.
+
 ### Checked: FTS5 is compiled into the linked SQLite3 (it is -- not a blocker)
 
 FTS5 is an optional, compile-time SQLite feature -- not guaranteed by every

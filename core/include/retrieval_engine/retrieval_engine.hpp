@@ -35,7 +35,13 @@ struct ChunkSearchResult {
     std::string document_id;
     std::size_t chunk_index;  // position within that document's chunk list, 0-based
     std::string text;
-    float distance;  // meaning depends on which search produced this result -- see each method's doc comment
+    // Meaning and "better" direction depend on which search produced this
+    // result: search_dense's raw cosine distance and search_sparse's raw
+    // bm25 score are both lower-is-better; search_hybrid's fused RRF score
+    // is higher-is-better. Named score, not distance, because "distance"
+    // would wrongly imply lower-is-better for every case. See each method's
+    // doc comment for which convention applies.
+    float score;
 };
 
 // One result's full per-ranking score breakdown, returned by
@@ -95,14 +101,14 @@ public:
     std::size_t chunk_count() const;
 
     // Dense-only search: returns (up to) the `k` nearest chunks to `query`
-    // by cosine similarity, ordered nearest-first. `distance` in each
-    // result is the raw cosine distance (lower = more similar). Throws
+    // by cosine similarity, ordered nearest-first. `score` in each result is
+    // the raw cosine distance (lower = more similar). Throws
     // std::invalid_argument if `query.size() != dim`, or std::runtime_error
     // on a usearch failure.
     std::vector<ChunkSearchResult> search_dense(const std::vector<float>& query, std::size_t k) const;
 
     // Sparse keyword search over chunk text via SQLite FTS5's bm25()
-    // ranking function. `distance` in each result holds the raw bm25 score
+    // ranking function. `score` in each result holds the raw bm25 score
     // (lower = more relevant, FTS5's convention). Only chunks matching
     // `query_text` are returned, so the result may have fewer than `k`
     // entries -- or none. Throws std::runtime_error on an invalid FTS5
@@ -113,9 +119,9 @@ public:
     // (RRF, k=60): each chunk's fused score is the sum, over whichever of
     // the two rankings it appears in, of 1 / (60 + rank-in-that-ranking) (0
     // for a ranking it's absent from), ordered highest-fused-score-first.
-    // `distance` in each result holds this fused score (higher = more
-    // relevant -- unlike search_dense()'s and search_sparse()'s own
-    // conventions). Throws under the same conditions as search_dense() and
+    // `score` in each result holds this fused score (higher = more relevant
+    // -- unlike search_dense()'s and search_sparse()'s own conventions).
+    // Throws under the same conditions as search_dense() and
     // search_sparse().
     std::vector<ChunkSearchResult> search_hybrid(const std::string& query_text, const std::vector<float>& query_vec,
                                                   std::size_t k) const;
