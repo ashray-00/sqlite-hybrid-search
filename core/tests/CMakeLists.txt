@@ -24,3 +24,12 @@ target_link_libraries(test_hybrid_retrieval PRIVATE
 )
 
 gtest_discover_tests(test_hybrid_retrieval)
+
+add_executable(test_recency_decay_and_temporal_reranking test_recency_decay_and_temporal_reranking.cpp)
+
+target_link_libraries(test_recency_decay_and_temporal_reranking PRIVATE
+    retrieval_engine::core
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_recency_decay_and_temporal_reranking)

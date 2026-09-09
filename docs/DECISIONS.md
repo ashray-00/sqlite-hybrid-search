@@ -3,6 +3,74 @@
 Decision log across stages. Kept separate from BUILD_PLAN.md so the plan
 stays a plan and this stays a record of what actually happened building it.
 
+## Agent memory layer (recency decay + temporal reranking)
+
+### Scope: narrower than BUILD_PLAN.md's full memory-semantics bullet, by explicit user instruction
+
+BUILD_PLAN.md's memory-semantics stage also calls for dedup/update
+(near-duplicate detection), a `remember()`/`recall()` API, namespaces, and a
+forgetting policy. The user's instructions for this pass scoped it
+narrowly to recency decay + temporal reranking only. Following that literal
+scope (Single Stage Execution) -- the rest of BUILD_PLAN.md's memory
+semantics remain future work, not silently folded in or silently dropped.
+
+### Decision: search_memory()/search_memory_explained() as new methods, not new parameters on existing ones
+
+Adding a `recency_weight` parameter directly to `search_hybrid()`/
+`search_explained()` was considered and rejected: changing an existing
+method's *declared* signature while its already-shipped `.cpp` definition
+keeps the old signature is a hard compile error in that file (a mismatched
+out-of-line definition), not a clean undefined-symbol RED failure -- it
+would break Stage 2/3's already-compiled code outright. Introduced
+`search_memory()` (returns `ChunkSearchResult`, `score` = decayed score)
+and `search_memory_explained()` (returns `SearchExplanation` with 4 new
+recency fields) as distinct new methods instead, exactly mirroring how
+`search_hybrid()`/`search_explained()` already pair up. `search_explained()`
+itself is untouched.
+
+### Decision: timestamp lives on DocumentChunkInput, not as an add_documents() parameter
+
+Added `DocumentChunkInput::created_at_unix_seconds` (default `0`, a sentinel
+meaning "use wall-clock time at insertion" -- a real timestamp is never
+legitimately exactly the Unix epoch) rather than changing `add_documents()`'s
+signature. Existing callers are unaffected: aggregate-initializing a
+`DocumentChunkInput` with only 4 positional values still compiles (the 5th
+member value-initializes from its default), and every current C++/Python
+call site already uses named-field construction, not positional literals.
+Also added 4 matching fields to `SearchExplanation`
+(`created_at_unix_seconds`, `age_seconds`, `recency_factor`,
+`decayed_score`), each with a default member initializer (`0`, `0.0`, `1.0`,
+`0.0f`) so `search_explained()`'s existing, untouched implementation -- which
+never sets these -- still produces well-defined values instead of reading
+uninitialized memory when a `SearchExplanation` is default-constructed.
+
+### Decision: formula and test corpus, worked out by hand before writing the test
+
+`decayed_score = fused_score * exp(-recency_weight * age_seconds)`, matching
+BUILD_PLAN.md's stated formula with `fused_score` (search_hybrid()'s RRF
+output) as `base_score`. Test corpus: two single-chunk documents, "old"
+(embedding exactly on the query direction, so it wins on raw dense
+similarity) and "recent" (embedding a hair off-axis, so it loses on raw
+similarity), both searched with query text neither one's content matches --
+so `search_sparse()` contributes nothing to either and the fused score is
+dense-only, making the raw-similarity gap exact and easy to verify by hand.
+With `recency_weight=0.1` and a 20-second simulated age gap for "old" (vs.
+~0 for "recent"), `exp(-0.1*20) = e^-2 ≈ 0.135`, comfortably flipping the
+ranking without needing an extreme lambda or an unrealistic time gap.
+Timestamps are simulated via `now() - 20` at insertion (no real sleeping),
+keeping the test fast and non-flaky; assertions on `age_seconds` use a
+2-second tolerance to absorb test-execution overhead.
+
+### Note: RED-phase test design for the Python side
+
+Initially wrote the Python RED test using `pytest.raises(AttributeError)`,
+which makes the test *pass* when the missing method correctly raises --
+inconsistent with every other stage's RED convention ("confirm the tests
+fail as expected") and with the C++ side (an uncaught linker error).
+Corrected to call `engine.search_memory(...)` directly with no exception
+guard, letting the `AttributeError` propagate and fail the test, matching
+the established pattern exactly (`pytest` exits non-zero, `2 failed`).
+
 ## Cross-cutting cleanup: removed "Stage N" naming and comments from code (user-requested)
 
 **What happened:** the user pointed out that files and identifiers were

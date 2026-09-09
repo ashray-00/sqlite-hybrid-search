@@ -17,6 +17,11 @@ struct DocumentChunkInput {
     std::vector<float> embedding;
     std::size_t start_token;
     std::size_t end_token;
+    // Unix timestamp (seconds since epoch) this chunk should be recorded as
+    // created at, for recency-decay scoring (search_memory()). 0 is a
+    // sentinel meaning "use the current wall-clock time at insertion" --
+    // a real timestamp is never legitimately exactly the Unix epoch.
+    std::int64_t created_at_unix_seconds = 0;
 };
 
 // A document to ingest: a caller-assigned id, opaque caller-defined metadata
@@ -62,6 +67,14 @@ struct SearchExplanation {
 
     float fused_score;       // Reciprocal Rank Fusion score (k=60), higher = more relevant
     std::size_t final_rank;  // 1-based rank within the fused/hybrid result list
+
+    // Recency-decay fields: populated by search_memory_explained(), left at
+    // these defaults by search_explained() (which has no notion of decay).
+    // See RetrievalEngine::search_memory()'s doc comment for the formula.
+    std::int64_t created_at_unix_seconds = 0;  // this chunk's stored timestamp
+    double age_seconds = 0.0;                  // time between created_at and the query, in seconds
+    double recency_factor = 1.0;               // exp(-recency_weight * age_seconds); 1.0 = no decay
+    float decayed_score = 0.0f;                // fused_score * recency_factor
 };
 
 // RetrievalEngine ties a usearch HNSW index (in-memory acceleration
@@ -132,6 +145,30 @@ public:
     // relevance. Throws under the same conditions as search_hybrid().
     std::vector<SearchExplanation> search_explained(const std::string& query_text,
                                                       const std::vector<float>& query_vec, std::size_t k) const;
+
+    // The agent memory layer: applies exponential recency decay on top of
+    // search_hybrid()'s fused score and re-ranks by the result, so a
+    // recent, relevant memory can outrank an older one even when the older
+    // one has a slightly higher raw hybrid score --
+    //     decayed_score = base_score * e^(-recency_weight * age_seconds)
+    // where base_score is search_hybrid()'s fused RRF score, age_seconds is
+    // the time (in seconds) between each chunk's stored created_at (see
+    // DocumentChunkInput::created_at_unix_seconds) and now, and
+    // recency_weight is lambda: 0 disables decay entirely (identical
+    // ranking to search_hybrid()); larger values discount older memories
+    // more aggressively. `score` in each result holds decayed_score.
+    // Throws under the same conditions as search_hybrid().
+    std::vector<ChunkSearchResult> search_memory(const std::string& query_text, const std::vector<float>& query_vec,
+                                                  std::size_t k, float recency_weight) const;
+
+    // Like search_memory(), but returns the full per-result score breakdown
+    // (as search_explained(), plus the recency-decay fields: timestamp,
+    // age_seconds, recency_factor, decayed_score) -- for debugging and
+    // tuning recency weighting. Throws under the same conditions as
+    // search_memory().
+    std::vector<SearchExplanation> search_memory_explained(const std::string& query_text,
+                                                             const std::vector<float>& query_vec, std::size_t k,
+                                                             float recency_weight) const;
 
     RetrievalEngine(const RetrievalEngine&) = delete;
     RetrievalEngine& operator=(const RetrievalEngine&) = delete;
