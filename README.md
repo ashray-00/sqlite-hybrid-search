@@ -1,16 +1,41 @@
 # Embeddable Retrieval & Memory Engine
 
 A local-first, in-process retrieval + memory engine in C++17, with Python
-bindings on the way. See `BUILD_PLAN.md` for the full plan and
+bindings via nanobind. See `BUILD_PLAN.md` for the full plan and
 `docs/DECISIONS.md` for the build log.
 
-**Status: Stage 0 (skeleton).** The CMake build, SQLite3 + usearch wiring,
-and a minimal `RetrievalEngine` core exist and are tested. Nothing below
-about chunking, hybrid search, reranking, or memory is built yet -- this
-section describes what the project is being built *toward*, and why, not
-what exists today. Read it as the pressure-test called for in
+## Quickstart
+
+```python
+import retrieval_engine
+
+engine = retrieval_engine.Engine("my_index.sqlite3", dim=4)
+engine.add(documents=[{"id": "doc-1", "text": "the quick brown fox"}],
+           embeddings=[[1.0, 0.0, 0.0, 0.0]])
+print(engine.search([1.0, 0.0, 0.0, 0.0], top_k=1))
+```
+
+Or from the command line, over a folder of `.txt` files (see the CLI's own
+`--help` for details; it uses a placeholder hashing-trick embedding, not a
+real model -- see `python/retrieval_engine/cli.py`'s docstring):
+
+```console
+$ pip install -e .
+$ engine ingest ./docs
+$ engine query "your search text"
+```
+
+**Status: Stage 3 (Python bindings + CLI).** Hybrid (dense + sparse, RRF-fused)
+retrieval with an explainable score trail is implemented and tested in C++
+(Stages 0-2), now exposed via nanobind bindings, a Python package, and this
+CLI. Chunking is token-window-based (no real tokenizer yet); embeddings are
+caller-supplied everywhere except the CLI's placeholder, no real embedding
+model is bundled yet (Stage 5); memory semantics (recency, dedup, forgetting)
+don't exist yet (Stage 4). Read this file as the pressure-test called for in
 `BUILD_PLAN.md` section 3: before writing more of this, be honest about
-whether it earns its place next to the obvious shortcut.
+whether it earns its place next to the obvious shortcut -- the comparison
+below is about what's being built *toward*, not a claim about what's
+finished.
 
 ## Why not just sqlite-vec?
 

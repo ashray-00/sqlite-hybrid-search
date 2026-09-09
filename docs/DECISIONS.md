@@ -49,6 +49,93 @@ process start), that's new core C++ work belonging to its own stage/task --
 matching BUILD_PLAN.md's own `.save()`/`.load()` bullet as methods, not a
 constructor parameter -- not something to fold into Stage 3's bindings work.
 
+### Decision: layered bindings -- a thin nanobind layer close to the C++ API, ergonomics in pure Python
+
+`bindings/python_bindings.cpp` exposes `NativeEngine` (the raw
+`RetrievalEngine`) and the structured `DocumentInput`/`DocumentChunkInput`/
+`ChunkSearchResult`/`SearchExplanation` types fairly directly -- no dict
+handling, no ingestion-shape adaptation in C++ at all. The public
+`retrieval_engine.Engine` (`python/retrieval_engine/__init__.py`) is a pure-
+Python wrapper that does the ergonomic work: converts the `(documents,
+embeddings)` shape into native `DocumentInput` objects, and converts
+`ChunkSearchResult`/`SearchExplanation` results into plain dicts. Kept the
+adaptation logic in ordinary, easily-read/tested Python rather than manual
+`nb::dict` handling in C++, which nanobind supports but which is
+meaningfully more ceremony for the same result.
+
+### Decision: pip-installed CLI needs *some* embedding to feed the dense index -- used a placeholder, documented loudly
+
+`engine ingest`/`engine query` need an embedding per chunk to populate/query
+`NativeEngine`'s dense index at all, but no embedding model exists yet
+(BUILD_PLAN.md's own scope guard: "Start with caller-supplied embeddings...
+add a built-in embedder in a later stage" -- Stage 5). Implemented
+`_hash_embed()` (cli.py): a deterministic feature-hashing "bag of hashed
+tokens" vector -- a real, if weak, technique (the "hashing trick"), not
+random noise, so texts sharing words with a query get *some* dense-
+similarity signal. Documented as a stand-in in the module docstring, the
+function's own docstring, and the README, specifically so nobody mistakes
+CLI search quality for a claim about the finished engine. Sparse (BM25) is
+unaffected -- it works over literal text regardless of embeddings.
+
+**Revisit when:** Stage 5 adds a real embedding model -- `_hash_embed()`
+should be replaced (or become an explicit opt-in fallback), not left as the
+silent default.
+
+### Decision: CLI index lives in the current working directory, not the ingested folder
+
+`engine query "<text>"` takes no folder argument (matching the literal
+Stage 3 ask), so it must find the same database `engine ingest <folder>`
+wrote without being told which folder was ingested. Both commands resolve
+the database path via `Path.cwd()` (a fixed filename,
+`.retrieval_engine.sqlite3`, not inside the ingested folder) -- `ingest`
+reads *from* the given folder but writes its index into the current
+directory, and `query` reads that same current-directory index. Caught by
+tracing the RED test's exact `subprocess.run(..., cwd=tmp_path)` calls
+before writing the GREEN implementation: an earlier draft wrote the index
+inside the ingested folder itself, which would have made `query` (with no
+folder argument) unable to find it.
+
+### Review findings (Phase 3, independent review)
+
+Focused on the three requested areas plus a general pass:
+
+**Fixed (GIL):** `NativeEngine`'s constructor had no `nb::call_guard<nb::gil_scoped_release>()`,
+unlike every other potentially-slow method on the class. Opening an
+existing database rebuilds the *entire* dense index from every persisted
+chunk (the same rebuild-on-open work reviewed back in Stage 1), which is
+unbounded work for a large corpus -- inconsistent to guard `add_documents()`/
+`search_*()` but not the constructor that can do just as much work. Fixed
+by adding the same guard to `nb::init<...>()`.
+
+**Fixed (CLI resilience):** `engine query --top-k -5` crossed a negative
+Python int into `search_hybrid()`'s unsigned C++ `size_t` parameter.
+Verified directly rather than assumed: nanobind's own caster correctly
+*rejects* the negative value (no silent wraparound, no crash) but with a
+raw type-mismatch message naming the compiled extension module and its
+argument types -- not something a CLI user could act on. Fixed by
+validating `--top-k > 0` in the CLI itself before calling into the engine,
+with a regression test (`test_cli_query_rejects_non_positive_top_k`)
+asserting the leaked message no longer appears.
+
+**Fixed (documentation, preventive):** `DocumentInput.chunks` is a property
+backed by nanobind's stl/vector.h get/set caster, not a live reference into
+the C++ vector -- `doc.chunks.append(x)` would silently mutate a throwaway
+temporary and lose the data, with no error at all. Nothing in the codebase
+currently does this (every caller already does the correct
+`doc.chunks = [...]` whole-list assignment), but it's a well-known nanobind/
+pybind11 trap worth a comment at the binding site so a future contributor
+doesn't rediscover it by losing data silently.
+
+**Reviewed, no defect found:** vector/string conversions and memory-leak
+risk generally (nanobind's own STL casters are used throughout with no
+manual memory management anywhere in the binding file; the class's
+non-copyable-but-movable design is fully compatible with nanobind's
+placement-construct-in-place model, requiring neither copy nor move for
+`nb::init<...>()`); five other CLI resilience scenarios (nonexistent
+folder, a file passed where a directory is expected, an empty folder,
+querying before any ingest, no subcommand at all) -- all five verified by
+direct execution to already produce clean, correctly-exit-coded errors.
+
 ## Stage 2
 
 ### Decision: split ChunkStore into 4 components + a thin orchestrator, renamed ChunkSearchResult::distance to score (user-requested)

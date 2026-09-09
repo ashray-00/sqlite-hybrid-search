@@ -1,0 +1,27 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "retrieval-engine"
+version = "0.1.0"
+description = "Embeddable Retrieval & Memory Engine: local-first hybrid (dense + sparse) retrieval, no server required."
+readme = "README.md"
+requires-python = ">=3.9"
+
+[project.scripts]
+engine = "retrieval_engine.cli:main"
+
+[tool.scikit-build]
+wheel.packages = ["python/retrieval_engine"]
+
+[tool.scikit-build.cmake.define]
+# Skip fetching/building GoogleTest and the C++ test executables for a
+# Python packaging build -- pip install shouldn't need them.
+RETRIEVAL_ENGINE_BUILD_TESTS = "OFF"
+RETRIEVAL_ENGINE_BUILD_PYTHON_BINDINGS = "ON"
+# Same Homebrew ARM64 path CLAUDE.md's documented C++ build command passes
+# (`cmake -B build -DCMAKE_PREFIX_PATH=/opt/homebrew`), so SQLite3/usearch
+# resolve identically whether building via CMake directly or via `pip
+# install`.
+CMAKE_PREFIX_PATH = "/opt/homebrew"

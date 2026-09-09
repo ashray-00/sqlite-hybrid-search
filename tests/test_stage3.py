@@ -1,21 +1,11 @@
-"""Stage 3 (BUILD_PLAN.md) -- TDD RED phase.
-
-Tests two not-yet-implemented pieces of Stage 3:
+"""Stage 3 (BUILD_PLAN.md): Python bindings + CLI.
 
   1. Bindings.* -- `import retrieval_engine`, the nanobind extension module
-     wrapping retrieval_engine::RetrievalEngine
-     (core/include/retrieval_engine/retrieval_engine.hpp). No bindings/
-     directory, no pyproject.toml/setup.py, and nothing installed into
-     .venv yet -- `import retrieval_engine` is expected to fail with
-     ModuleNotFoundError.
+     (bindings/python_bindings.cpp) wrapping retrieval_engine::RetrievalEngine
+     (core/include/retrieval_engine/retrieval_engine.hpp), via the pure-Python
+     Engine wrapper in python/retrieval_engine/__init__.py.
   2. Cli.* -- the `engine` console-script CLI (`engine ingest`,
-     `engine query`). No CLI code or packaging exists yet, so
-     .venv/bin/engine doesn't exist -- invoking it via subprocess is
-     expected to fail (FileNotFoundError, or a non-zero/absent exit code).
-
-Do not "fix" either by writing the bindings/CLI/packaging -- that is
-Phase 2 (GREEN). This file's job right now is only to fail for the right
-reason.
+     `engine query`), python/retrieval_engine/cli.py.
 
 Python-facing Engine API this file specifies -- resolved by re-reading
 core/include/retrieval_engine/retrieval_engine.hpp before writing this (see
@@ -132,3 +122,30 @@ def test_cli_ingest_then_query(tmp_path):
     )
     assert query.returncode == 0, f"query failed: {query.stderr}"
     assert query.stdout.strip() != ""
+
+
+def test_cli_query_rejects_non_positive_top_k(tmp_path):
+    """Regression test for a finding from Phase 3's independent review:
+    --top-k crosses into NativeEngine.search_hybrid()'s unsigned C++ `k`
+    parameter, so an unvalidated negative value used to fail with a leaked
+    nanobind type-mismatch message ("incompatible function arguments ...")
+    instead of a clean CLI error.
+    """
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "sample.txt").write_text("the quick brown fox", encoding="utf-8")
+
+    ingest = subprocess.run(
+        [str(ENGINE_CLI), "ingest", str(docs_dir)], capture_output=True, text=True, cwd=tmp_path
+    )
+    assert ingest.returncode == 0, f"ingest failed: {ingest.stderr}"
+
+    query = subprocess.run(
+        [str(ENGINE_CLI), "query", "fox", "--top-k", "-5"],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+    assert query.returncode == 1
+    assert "positive integer" in query.stderr
+    assert "incompatible function arguments" not in query.stderr

@@ -10,6 +10,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # the TDD "RED" pass (a failing test must exist before any implementation).
 
 option(RETRIEVAL_ENGINE_BUILD_TESTS "Build the C++ unit tests" ON)
+# Stage 3: OFF by default so the plain C++ dev/test build
+# (`cmake -B build && cmake --build build`) is completely unaffected; turned
+# ON by pyproject.toml's scikit-build-core config when building the Python
+# extension (`pip install -e .`).
+option(RETRIEVAL_ENGINE_BUILD_PYTHON_BINDINGS "Build the nanobind Python extension module" OFF)
 
 include(FetchContent)
 
@@ -81,3 +86,7 @@ if(RETRIEVAL_ENGINE_BUILD_TESTS)
 endif()
 
 add_subdirectory(core)
+
+if(RETRIEVAL_ENGINE_BUILD_PYTHON_BINDINGS)
+    add_subdirectory(bindings)
+endif()
