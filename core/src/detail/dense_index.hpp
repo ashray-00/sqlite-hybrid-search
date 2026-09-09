@@ -1,6 +1,7 @@
 #pragma once
 
-#include "usearch_util.hpp"  // SearchSlotPool, UsearchSearchThreadCount
+#include "blocking_pool.hpp"
+#include "usearch_util.hpp"  // UsearchSearchThreadCount
 
 #include <usearch/index_dense.hpp>
 
@@ -34,9 +35,9 @@ public:
     // Returns (up to) `k` nearest (key, distance) pairs, nearest-first
     // (lower distance = more similar). Safe to call concurrently from up to
     // UsearchSearchThreadCount() threads; a further concurrent caller blocks
-    // until a search slot frees. Throws std::invalid_argument if
-    // `query.size() != dimensions()`, or std::runtime_error on a usearch
-    // failure.
+    // until a search slot frees (see search_slots_). Throws
+    // std::invalid_argument if `query.size() != dimensions()`, or
+    // std::runtime_error on a usearch failure.
     std::vector<std::pair<std::uint64_t, float>> Search(const std::vector<float>& query, std::size_t k) const;
 
     // Serialises the whole HNSW graph to `path` in usearch's native format.
@@ -61,8 +62,13 @@ private:
     std::size_t dimensions_;
     std::size_t search_threads_;
     unum::usearch::index_dense_t index_;
-    // `mutable` because Search() is const but must lease/return a slot.
-    mutable SearchSlotPool search_slots_;
+    // usearch's search(vector, k) with the default any_thread() picks a
+    // private scratch slot and frees it the instant search() returns -- but
+    // the result it hands back still points into that slot's buffers, which
+    // Search() reads afterwards. Leasing an explicit slot id (0..N-1) for
+    // the whole call keeps a concurrent Search() off that slot. `mutable`
+    // because Search() is const but leases/returns a slot.
+    mutable BlockingPool<std::size_t> search_slots_;
 };
 
 }  // namespace retrieval_engine::detail

@@ -240,8 +240,8 @@ TEST(Concurrency, LoadModelConcurrentWithReaders) {
 }
 
 // Informational: proves the read path actually parallelises rather than
-// serialising. Timing-based, so DISABLED by default (CI-flaky); run locally
-// in a Release build to confirm Layer 2 (read-connection pool) works.
+// serialising on the connection pool. Timing-based, so DISABLED by default
+// (CI-flaky); run locally in a Release build.
 TEST(Concurrency, DISABLED_ReaderScalingIsParallel) {
     const std::string db = "concurrency_test_scaling.sqlite3";
     RemoveArtifacts(db);

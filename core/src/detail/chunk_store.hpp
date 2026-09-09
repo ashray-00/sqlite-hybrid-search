@@ -86,10 +86,9 @@ private:
     std::vector<ChunkSearchResult> DenseSearch(sqlite3* db, const std::vector<float>& query, std::size_t k) const;
     std::vector<ChunkSearchResult> SparseSearch(sqlite3* db, const std::string& query_text, std::size_t k) const;
 
-    // Runs DenseSearch()+SparseSearch()+RrfFuse() -- the one fuse step
-    // every search_*() method builds on -- so it's written once instead of
-    // once per caller (search_hybrid(), search_explained(), and
-    // FuseRankAndDecay() all used to call RrfFuse() independently).
+    // DenseSearch() + SparseSearch() + RrfFuse() on one connection: the
+    // single fuse step search_hybrid(), search_explained() and
+    // FuseRankAndDecay() all build on.
     std::vector<FusionEntry> Fuse(sqlite3* db, const std::string& query_text, const std::vector<float>& query_vec,
                                   std::size_t k) const;
 

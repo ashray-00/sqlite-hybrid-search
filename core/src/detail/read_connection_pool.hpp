@@ -1,11 +1,11 @@
 #pragma once
 
+#include "blocking_pool.hpp"
 #include "sqlite_util.hpp"
 
-#include <condition_variable>
 #include <cstddef>
 #include <memory>
-#include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -17,16 +17,15 @@ struct sqlite3;
 //
 // Inert for databases with no stable path (":memory:" / "") -- a second
 // connection would open a *different* in-memory database. There, Acquire()
-// hands back the writer connection and reads serialise as before, which is
-// fine for tests.
+// hands back the writer connection and reads serialise on it as before.
 namespace retrieval_engine::detail {
 
 class ReadConnectionPool {
 public:
     // `db_path` is the SQLite file. If empty or ":memory:" the pool is
     // inert and every Acquire() returns `fallback_connection`. Otherwise
-    // opens `size` SQLITE_OPEN_READONLY connections up front. `size` is
-    // clamped to >= 1.
+    // opens `size` (clamped to >= 1) SQLITE_OPEN_READONLY connections up
+    // front.
     ReadConnectionPool(const std::string& db_path, sqlite3* fallback_connection, std::size_t size);
 
     ReadConnectionPool(const ReadConnectionPool&) = delete;
@@ -36,21 +35,14 @@ public:
     // connection returns to the pool on destruction. Move-only.
     class Handle {
     public:
-        Handle(ReadConnectionPool* pool, sqlite3* connection) : pool_(pool), connection_(connection) {}
-        Handle(Handle&& other) noexcept : pool_(other.pool_), connection_(other.connection_) {
-            other.pool_ = nullptr;
-            other.connection_ = nullptr;
-        }
-        Handle& operator=(Handle&&) = delete;
-        Handle(const Handle&) = delete;
-        Handle& operator=(const Handle&) = delete;
-        ~Handle();
+        Handle(BlockingPool<sqlite3*>::Handle pooled, sqlite3* fallback)
+            : pooled_(std::move(pooled)), fallback_(fallback) {}
 
-        sqlite3* get() const { return connection_; }
+        sqlite3* get() const { return pooled_.valid() ? pooled_.value() : fallback_; }
 
     private:
-        ReadConnectionPool* pool_;  // nullptr => inert handle, nothing to return
-        sqlite3* connection_;
+        BlockingPool<sqlite3*>::Handle pooled_;  // invalid for an inert pool
+        sqlite3* fallback_;
     };
 
     // Blocks until a connection is free (bounded by `size` concurrent
@@ -58,14 +50,9 @@ public:
     Handle Acquire();
 
 private:
-    void Return(sqlite3* connection);
-
     std::vector<std::unique_ptr<SqliteConnection>> connections_;  // owned; empty when inert
-    std::vector<sqlite3*> free_;
-    std::mutex mutex_;
-    std::condition_variable available_;
+    std::optional<BlockingPool<sqlite3*>> pool_;                  // engaged only when not inert
     sqlite3* fallback_connection_;
-    bool inert_;
 };
 
 }  // namespace retrieval_engine::detail

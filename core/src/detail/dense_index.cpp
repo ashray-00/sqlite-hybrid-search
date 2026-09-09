@@ -4,9 +4,11 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <vector>
 
 namespace retrieval_engine::detail {
 
@@ -21,6 +23,14 @@ namespace {
 // locates the "usearch" magic; on a truncated or garbage file it fails in
 // microseconds, whereas index.load() can spin for tens of seconds
 // interpreting random bytes as node counts.
+// The slot ids {0, 1, ..., count-1} the search-slot pool leases out; each
+// id is a usearch `thread` index into its per-thread scratch buffers.
+std::vector<std::size_t> SearchSlotIds(std::size_t count) {
+    std::vector<std::size_t> ids(count);
+    std::iota(ids.begin(), ids.end(), std::size_t{0});
+    return ids;
+}
+
 bool SidecarHeaderIsValid(const std::string& path) {
     std::error_code ec;
     if (std::filesystem::file_size(path, ec) < 64 || ec) return false;
@@ -43,7 +53,7 @@ DenseIndex::DenseIndex(std::size_t dim)
     : dimensions_(dim),
       search_threads_(UsearchSearchThreadCount()),
       index_(MakeIndex(dim)),
-      search_slots_(search_threads_) {
+      search_slots_(SearchSlotIds(search_threads_)) {
     ProvisionSearchThreads(index_, search_threads_, "DenseIndex");
 }
 
@@ -63,14 +73,13 @@ std::vector<std::pair<std::uint64_t, float>> DenseIndex::Search(const std::vecto
     if (query.size() != dimensions_)
         throw std::invalid_argument("DenseIndex::Search: query size does not match index dimensionality");
 
-    // Hold an explicit search-slot id for the whole call. usearch's
-    // default any_thread() returns the slot to its free list the instant
-    // search() returns, but search_result still points into that slot's
-    // buffers, which dump_to() reads below -- a concurrent Search() reusing
-    // the slot would race. The lease also caps concurrent searchers at the
-    // pool size (blocking the surplus) instead of exhausting usearch's list.
-    const SearchSlotPool::Lease slot = search_slots_.Acquire();
-    const auto search_result = index_.search(query.data(), k, slot.id());
+    // Hold an explicit search-slot id for the whole call (search + the
+    // dump_to() below, which reads that slot's buffers). See search_slots_
+    // in the header for why any_thread() is unsafe here. The pool also caps
+    // concurrent searchers at its size, blocking the surplus rather than
+    // exhausting usearch's own free list.
+    const BlockingPool<std::size_t>::Handle slot = search_slots_.Acquire();
+    const auto search_result = index_.search(query.data(), k, slot.value());
     if (!search_result) {
         throw std::runtime_error(std::string("DenseIndex::Search: usearch query failed: ") +
                                  (search_result.error.what() ? search_result.error.what() : "unknown error"));
