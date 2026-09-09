@@ -42,10 +42,18 @@ target_include_directories(sqlite_hybrid_search_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 
-target_link_libraries(sqlite_hybrid_search_core PUBLIC
-    usearch::usearch
-    SQLite3::SQLite3
-)
+target_link_libraries(sqlite_hybrid_search_core PUBLIC usearch::usearch)
+
+# CMake's FindSQLite3 only defines the SQLite3::SQLite3 imported target when
+# it locates the library itself, not just the header (e.g. a machine with
+# sqlite3.h but no libsqlite3.so dev symlink). Fall back to the raw result
+# variables so the build still works there.
+if(TARGET SQLite3::SQLite3)
+    target_link_libraries(sqlite_hybrid_search_core PUBLIC SQLite3::SQLite3)
+else()
+    target_link_libraries(sqlite_hybrid_search_core PUBLIC ${SQLite3_LIBRARIES})
+    target_include_directories(sqlite_hybrid_search_core SYSTEM PUBLIC ${SQLite3_INCLUDE_DIRS})
+endif()
 
 target_compile_features(sqlite_hybrid_search_core PUBLIC cxx_std_17)
 
