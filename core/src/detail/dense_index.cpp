@@ -18,11 +18,6 @@ using unum::usearch::metric_punned_t;
 
 namespace {
 
-// Validate a sidecar cheaply before the full Load(). usearch's
-// index_dense_metadata_from_path() reads only the ~64-byte header and
-// locates the "usearch" magic; on a truncated or garbage file it fails in
-// microseconds, whereas index.load() can spin for tens of seconds
-// interpreting random bytes as node counts.
 // The slot ids {0, 1, ..., count-1} the search-slot pool leases out; each
 // id is a usearch `thread` index into its per-thread scratch buffers.
 std::vector<std::size_t> SearchSlotIds(std::size_t count) {
@@ -31,6 +26,11 @@ std::vector<std::size_t> SearchSlotIds(std::size_t count) {
     return ids;
 }
 
+// Validate a sidecar cheaply before the full Load(). usearch's
+// index_dense_metadata_from_path() reads only the ~64-byte header and
+// locates the "usearch" magic; on a truncated or garbage file it fails in
+// microseconds, whereas index.load() can spin for tens of seconds
+// interpreting random bytes as node counts.
 bool SidecarHeaderIsValid(const std::string& path) {
     std::error_code ec;
     if (std::filesystem::file_size(path, ec) < 64 || ec) return false;

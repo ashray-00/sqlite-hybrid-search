@@ -21,12 +21,30 @@ namespace {
 
 constexpr std::size_t kDim = 8;
 
-void RemoveArtifacts(const std::string& db_path) {
+void RemoveArtifacts(const std::string& path) {
     std::error_code ec;
     for (const char* suffix : {"", ".usearch", ".usearch.tmp", "-wal", "-shm"}) {
-        std::filesystem::remove(db_path + suffix, ec);
+        std::filesystem::remove(path + suffix, ec);
     }
 }
+
+// Sweeps the given base paths (db files, model fixtures, their sidecars)
+// both on construction and on destruction. Declared before the engine under
+// test so its cleanup runs *after* the engine -- and every connection it
+// owns -- has been destroyed.
+class ArtifactGuard {
+public:
+    explicit ArtifactGuard(std::vector<std::string> paths) : paths_(std::move(paths)) { Sweep(); }
+    ArtifactGuard(const ArtifactGuard&) = delete;
+    ArtifactGuard& operator=(const ArtifactGuard&) = delete;
+    ~ArtifactGuard() { Sweep(); }
+
+private:
+    void Sweep() {
+        for (const auto& path : paths_) RemoveArtifacts(path);
+    }
+    std::vector<std::string> paths_;
+};
 
 // `count` single-chunk docs; embedding is 0.1 everywhere except one
 // dimension bumped by the doc index, so nearest-neighbour is unambiguous.
@@ -64,7 +82,12 @@ std::vector<std::string> Ids(const std::vector<retrieval_engine::ChunkSearchResu
     return ids;
 }
 
-std::size_t ReaderCount() { return std::max<std::size_t>(4, std::thread::hardware_concurrency()); }
+// Deliberately oversubscribed: the read-connection pool and the usearch
+// search-slot pool are each sized to max(1, hardware_concurrency()), so
+// running 3x that many readers guarantees the BlockingPool's block-and-wake
+// path (condvar wait + notify_one on checkout) is exercised on every host,
+// not just on low-core CI runners.
+std::size_t ReaderCount() { return 3 * std::max<std::size_t>(2, std::thread::hardware_concurrency()); }
 
 void WriteMockModel(const std::string& path, std::size_t dim) {
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
@@ -76,7 +99,7 @@ void WriteMockModel(const std::string& path, std::size_t dim) {
 
 TEST(Concurrency, ConcurrentDenseAndHybridSearchesMatchSingleThreaded) {
     const std::string db = "concurrency_test_search.sqlite3";
-    RemoveArtifacts(db);
+    const ArtifactGuard guard({db});
 
     retrieval_engine::RetrievalEngine engine(db, kDim);
     engine.add_documents(MakeDocuments(240));
@@ -106,12 +129,11 @@ TEST(Concurrency, ConcurrentDenseAndHybridSearchesMatchSingleThreaded) {
     for (auto& th : threads) th.join();
 
     EXPECT_FALSE(mismatch) << "a concurrent search returned a different result than the single-threaded baseline";
-    RemoveArtifacts(db);
 }
 
 TEST(Concurrency, ReadersDuringWritesStayConsistent) {
     const std::string db = "concurrency_test_rw.sqlite3";
-    RemoveArtifacts(db);
+    const ArtifactGuard guard({db});
 
     retrieval_engine::RetrievalEngine engine(db, kDim);
     engine.add_documents(MakeDocuments(50));  // seed
@@ -151,13 +173,12 @@ TEST(Concurrency, ReadersDuringWritesStayConsistent) {
 
     EXPECT_FALSE(failure);
     EXPECT_EQ(engine.chunk_count(), total);
-    RemoveArtifacts(db);
 }
 
 TEST(Concurrency, ConcurrentEmbedAndSearchTextWithMockModel) {
     const std::string db = "concurrency_test_text.sqlite3";
     const std::string model = "concurrency_test_mock_model.txt";
-    RemoveArtifacts(db);
+    const ArtifactGuard guard({db, model});
     WriteMockModel(model, kDim);
 
     retrieval_engine::RetrievalEngine engine(db, kDim);
@@ -187,15 +208,12 @@ TEST(Concurrency, ConcurrentEmbedAndSearchTextWithMockModel) {
     for (auto& th : threads) th.join();
 
     EXPECT_FALSE(mismatch);
-    RemoveArtifacts(db);
-    std::error_code ec;
-    std::filesystem::remove(model, ec);
 }
 
 TEST(Concurrency, LoadModelConcurrentWithReaders) {
     const std::string db = "concurrency_test_loadmodel.sqlite3";
     const std::string model = "concurrency_test_loadmodel_mock.txt";
-    RemoveArtifacts(db);
+    const ArtifactGuard guard({db, model});
     WriteMockModel(model, kDim);
 
     retrieval_engine::RetrievalEngine engine(db, kDim);
@@ -234,9 +252,6 @@ TEST(Concurrency, LoadModelConcurrentWithReaders) {
     EXPECT_FALSE(failure);
     EXPECT_FALSE(reverted);
     EXPECT_TRUE(engine.has_embedding_model());
-    RemoveArtifacts(db);
-    std::error_code ec;
-    std::filesystem::remove(model, ec);
 }
 
 // Informational: proves the read path actually parallelises rather than
@@ -244,7 +259,7 @@ TEST(Concurrency, LoadModelConcurrentWithReaders) {
 // (CI-flaky); run locally in a Release build.
 TEST(Concurrency, DISABLED_ReaderScalingIsParallel) {
     const std::string db = "concurrency_test_scaling.sqlite3";
-    RemoveArtifacts(db);
+    const ArtifactGuard guard({db});
     retrieval_engine::RetrievalEngine engine(db, kDim);
     engine.add_documents(MakeDocuments(2000));
     const auto queries = QueryVectors(16);
@@ -266,5 +281,4 @@ TEST(Concurrency, DISABLED_ReaderScalingIsParallel) {
     const double serial = run(1, static_cast<int>(p) * 20);
     const double parallel = run(p, 20);
     EXPECT_LT(parallel, serial / 1.5) << "serial=" << serial << "s parallel=" << parallel << "s (p=" << p << ")";
-    RemoveArtifacts(db);
 }

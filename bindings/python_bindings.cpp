@@ -81,10 +81,12 @@ NB_MODULE(_sqlite_hybrid_search_ext, m) {
     // Python-facing class is sqlite_hybrid_search.Engine (a pure-Python wrapper
     // over this), with a friendlier ingestion shape -- see
     // python/sqlite_hybrid_search/__init__.py and docs/dev-log.md.
-    // Every heavy method releases the GIL, so Python threads sharing one
-    // Engine run concurrently in the C++ core -- which is safe: the core
-    // enforces a single-writer / concurrent-reader lock discipline itself
-    // (ADR-11). No extra synchronisation is needed on the Python side.
+    // Every method releases the GIL: they all take the engine's read/write
+    // lock (ADR-11), so any of them can block behind an in-progress writer
+    // and must not hold the GIL while doing so. Concurrent Python threads
+    // then run in parallel in the C++ core, which is safe -- the core
+    // enforces the single-writer / concurrent-reader discipline itself, so
+    // no extra synchronisation is needed on the Python side.
     nb::class_<RetrievalEngine>(m, "NativeEngine")
         // Opening an existing database loads the dense index from the
         // "<db_path>.usearch" sidecar, or rebuilds it from every persisted
@@ -95,8 +97,9 @@ NB_MODULE(_sqlite_hybrid_search_ext, m) {
              nb::call_guard<nb::gil_scoped_release>())
         .def("add_documents", &RetrievalEngine::add_documents, nb::arg("documents"),
              nb::call_guard<nb::gil_scoped_release>())
-        .def("chunk_count", &RetrievalEngine::chunk_count)
-        .def("loaded_index_from_sidecar", &RetrievalEngine::loaded_index_from_sidecar)
+        .def("chunk_count", &RetrievalEngine::chunk_count, nb::call_guard<nb::gil_scoped_release>())
+        .def("loaded_index_from_sidecar", &RetrievalEngine::loaded_index_from_sidecar,
+             nb::call_guard<nb::gil_scoped_release>())
         .def("search_dense", &RetrievalEngine::search_dense, nb::arg("query"), nb::arg("k"),
              nb::call_guard<nb::gil_scoped_release>())
         .def("search_sparse", &RetrievalEngine::search_sparse, nb::arg("query_text"), nb::arg("k"),
@@ -116,8 +119,8 @@ NB_MODULE(_sqlite_hybrid_search_ext, m) {
         // add_text()/search_text() run inference and release it too.
         .def("load_embedding_model", &RetrievalEngine::load_embedding_model, nb::arg("model_path"),
              nb::call_guard<nb::gil_scoped_release>())
-        .def("has_embedding_model", &RetrievalEngine::has_embedding_model)
-        .def("embedding_dim", &RetrievalEngine::embedding_dim)
+        .def("has_embedding_model", &RetrievalEngine::has_embedding_model, nb::call_guard<nb::gil_scoped_release>())
+        .def("embedding_dim", &RetrievalEngine::embedding_dim, nb::call_guard<nb::gil_scoped_release>())
         .def("embed", &RetrievalEngine::embed, nb::arg("text"), nb::call_guard<nb::gil_scoped_release>())
         .def("add_text", &RetrievalEngine::add_text, nb::arg("documents"), nb::call_guard<nb::gil_scoped_release>())
         .def("search_text", &RetrievalEngine::search_text, nb::arg("query_text"), nb::arg("k"),

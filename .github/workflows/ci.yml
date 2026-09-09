@@ -1,14 +1,19 @@
 name: CI
 
-# Build + test on every push and pull request:
-#   ctest  -- the C++ suite (ONNX backend off; system SQLite/FTS5)
-#   tsan   -- the same suite under ThreadSanitizer, gating the ADR-11
-#             single-writer / concurrent-reader model
-#   pytest -- the Python bindings + CLI suite against an editable install
+# Build + test the C++ and Python suites:
+#   ctest        -- C++ suite on Linux and macOS (ONNX backend off)
+#   tsan         -- the suite under ThreadSanitizer, gating the ADR-11
+#                   single-writer / concurrent-reader model
+#   pytest       -- the Python bindings + CLI suite against an editable install
+#
+# Runs on pushes to main (and tags) and on every pull request. Feature
+# branches get CI through their PR, so a branch with an open PR is not
+# built twice.
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
+    tags: ["v*"]
   pull_request: {}
 
 permissions:
@@ -16,11 +21,16 @@ permissions:
 
 jobs:
   ctest:
-    name: ctest (Linux)
-    runs-on: ubuntu-latest
+    name: ctest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
     steps:
       - uses: actions/checkout@v4
-      - name: Install SQLite
+      - name: Install SQLite (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
       - name: Configure
         run: cmake -B build -DRETRIEVAL_ENGINE_WITH_ONNX=OFF

@@ -1370,3 +1370,29 @@ embedding outside the lock behind a model-generation counter.
 - `.github/workflows/ci.yml` added: `ctest`, `tsan`, `pytest` jobs on
   push / PR.
 - clang-format + ruff clean.
+
+### Independent review round
+
+A separate reviewer pass (SOLID/modularity + concurrency correctness + comment
+hygiene) returned no BLOCKER. Resolved findings:
+
+- **IMPORTANT** -- `chunk_count()` kept the GIL in the nanobind layer, but
+  after ADR-11 it takes the read lock and a pooled connection and runs an
+  O(N) `COUNT(*)`; a Python thread calling it could stall every other Python
+  thread. Now every `NativeEngine` method releases the GIL (they all take
+  `rw_mutex`); the binding comment says so.
+- **IMPORTANT** -- the concurrency tests spawned `max(4, hw)` readers, equal
+  to the pool size on any >=4-core host, so `BlockingPool`'s block-and-wake
+  path never ran there. `ReaderCount()` is now `3 * max(2, hw)` -- always
+  oversubscribed.
+- **MINOR** -- test cleanup unlinked the db file while the engine was still
+  open; replaced the trailing `RemoveArtifacts` calls with an `ArtifactGuard`
+  declared before the engine so it sweeps after every connection is closed.
+- **MINOR** -- `DenseIndex` header now states plainly that it does not
+  synchronise `Add`/`Save`/`Load`/`Clear` against `Search`; the caller's
+  lock does. `SearchSlotIds` helper moved so it no longer splits another
+  function's doc comment.
+- **MINOR** -- CI gained a macOS `ctest` job (the `DenseIndex::Clear`
+  heap-corruption workaround is macOS/ARM64-specific and Linux can't
+  regression-test it); push triggers narrowed to `main` + tags so a branch
+  with an open PR isn't built twice.

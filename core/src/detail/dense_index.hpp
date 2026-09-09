@@ -17,6 +17,12 @@
 // reopened engine skips the O(N) rebuild from SQLite; SQLite stays
 // authoritative and can always reconstruct the index if the sidecar is
 // missing or stale (see ChunkStore's constructor).
+//
+// Threading: concurrent Search() calls are mutually safe (each leases a
+// private search slot). Add/Save/Load/Clear are NOT -- Add() may reallocate
+// usearch's per-thread buffers mid-flight. This class does not synchronise
+// them itself; the caller (RetrievalEngine, via its read/write lock) must
+// keep every mutating call exclusive of all Search() calls.
 namespace retrieval_engine::detail {
 
 class DenseIndex {
@@ -33,11 +39,12 @@ public:
     void Add(std::uint64_t key, const std::vector<float>& embedding);
 
     // Returns (up to) `k` nearest (key, distance) pairs, nearest-first
-    // (lower distance = more similar). Safe to call concurrently from up to
+    // (lower distance = more similar). Callable concurrently from up to
     // UsearchSearchThreadCount() threads; a further concurrent caller blocks
-    // until a search slot frees (see search_slots_). Throws
-    // std::invalid_argument if `query.size() != dimensions()`, or
-    // std::runtime_error on a usearch failure.
+    // until a search slot frees (see search_slots_) -- but only if no
+    // mutating call (Add/Save/Load/Clear) is running, which the caller must
+    // ensure. Throws std::invalid_argument if `query.size() != dimensions()`,
+    // or std::runtime_error on a usearch failure.
     std::vector<std::pair<std::uint64_t, float>> Search(const std::vector<float>& query, std::size_t k) const;
 
     // Serialises the whole HNSW graph to `path` in usearch's native format.
