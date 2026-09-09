@@ -6,3 +6,12 @@ target_link_libraries(test_stage0 PRIVATE
 )
 
 gtest_discover_tests(test_stage0)
+
+add_executable(test_stage1 test_stage1.cpp)
+
+target_link_libraries(test_stage1 PRIVATE
+    retrieval_engine::core
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_stage1)

@@ -8,6 +8,35 @@
 
 namespace retrieval_engine {
 
+// One chunk of a document, ready to be ingested via add_documents(): its
+// text, a caller-supplied embedding for that text (Stage 1 scope: "embeddings
+// supplied by caller for now", per BUILD_PLAN.md Stage 1), and its position
+// within the source document (as produced by chunk_text()).
+struct DocumentChunkInput {
+    std::string text;
+    std::vector<float> embedding;
+    std::size_t start_token;
+    std::size_t end_token;
+};
+
+// A document to ingest: a caller-assigned id, opaque caller-defined metadata
+// (Stage 1 does not interpret it -- stored and returned as-is), and its
+// already-chunked, already-embedded content.
+struct DocumentInput {
+    std::string document_id;
+    std::string metadata;
+    std::vector<DocumentChunkInput> chunks;
+};
+
+// One chunk returned by search_chunks(), with enough context to trace it
+// back to its source document without a further lookup.
+struct ChunkSearchResult {
+    std::string document_id;
+    std::size_t chunk_index;  // position within that document's chunk list, 0-based
+    std::string text;
+    float distance;  // raw index distance for the chunk-search metric (lower = more similar)
+};
+
 // RetrievalEngine ties a usearch HNSW index (in-memory acceleration
 // structure) to a SQLite database (source of truth for vectors/metadata),
 // per the architecture in BUILD_PLAN.md section 5.
@@ -42,6 +71,28 @@ public:
     // Number of rows currently present in the dummy SQLite table -- used to
     // verify that SQLite bookkeeping stays in sync with the usearch index.
     std::size_t dummy_table_row_count() const;
+
+    // Stage 1 (BUILD_PLAN.md): stores each document's chunks + metadata in
+    // SQLite (the authoritative store) and adds each chunk's embedding to a
+    // dedicated chunk-search usearch index (cosine similarity), keyed by a
+    // chunk id this call assigns internally. Persists across re-opening the
+    // same `db_path`: a freshly-constructed RetrievalEngine reloads existing
+    // chunk rows from SQLite and rebuilds the chunk-search index from them,
+    // per the "SQLite is authoritative, usearch is a rebuildable sidecar"
+    // architecture in BUILD_PLAN.md section 5.
+    //
+    // Throws std::invalid_argument if any chunk's embedding size doesn't
+    // match `dim`, or std::runtime_error on a usearch/SQLite failure.
+    void add_documents(const std::vector<DocumentInput>& documents);
+
+    // Returns (up to) the `k` nearest chunks to `query` by cosine similarity,
+    // ordered nearest-first. Throws std::invalid_argument if
+    // `query.size() != dim`, or std::runtime_error on a usearch failure.
+    std::vector<ChunkSearchResult> search_chunks(const std::vector<float>& query, std::size_t k) const;
+
+    // Number of chunk rows currently present in SQLite -- used to verify
+    // ingestion persisted everything add_documents() was given.
+    std::size_t chunk_count() const;
 
     RetrievalEngine(const RetrievalEngine&) = delete;
     RetrievalEngine& operator=(const RetrievalEngine&) = delete;

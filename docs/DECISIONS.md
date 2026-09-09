@@ -1,8 +1,60 @@
-# Stage 0 — Blockers & Pain Points
+# Blockers & Pain Points
 
-Decision log for the Stage 0 skeleton (CMake + SQLite3 + usearch + GoogleTest).
-Kept separate from BUILD_PLAN.md so the plan stays a plan and this stays a
-record of what actually happened setting it up.
+Decision log across stages. Kept separate from BUILD_PLAN.md so the plan
+stays a plan and this stays a record of what actually happened building it.
+
+## Stage 1
+
+### Blocker: usearch mutations aren't transactional, so a naive add_documents() could desync the index from SQLite on a partial failure
+
+**What happened:** the first GREEN implementation of `add_documents()` called
+`chunk_index.add()` (usearch) inside the same loop as the SQLite row inserts,
+before `COMMIT`. Caught in the Phase 3 independent review (prompted by the
+explicit "correct usearch vector ID mapping to SQLite rowids" review focus):
+if a later document in a multi-document batch fails -- e.g. two documents in
+one call sharing a `document_id`, tripping the `documents.document_id`
+PRIMARY KEY constraint -- the `catch` block issues `ROLLBACK`, correctly
+undoing every SQLite row from the batch, but usearch has no equivalent
+concept and keeps every vector already `.add()`'d for earlier chunks in that
+same batch. That's a usearch entry with no backing SQLite row -- exactly the
+inconsistency the "SQLite is authoritative, usearch is a rebuildable
+sidecar" architecture (BUILD_PLAN.md section 5) has no recovery story for,
+and the same class of bug Stage 0's review fixed for `add_vector()` (see
+below), reintroduced in a form a lot easier to trigger (any multi-document
+batch with a later failure).
+
+**Fix:** defer every `chunk_index.add()` call until *after* SQLite's
+transaction commits, buffering `(chunk_id, embedding)` pairs during the
+transaction. A failure during the deferred usearch-population loop (after
+commit) can only ever leave the index *lagging* what's in SQLite -- the
+architecturally sanctioned, recoverable direction -- never containing an
+entry SQLite has no record of. Added a regression test
+(`RetrievalEngineStage1.FailedBatchLeavesNoPhantomEntriesInChunkIndex`) that
+forces exactly this rollback path and asserts the index comes out empty
+afterward, not desynced.
+
+**Revisit when:** if a future stage wants ingestion to be resumable/streamed
+(each document committed independently rather than one batch = one
+transaction), this buffering approach needs re-examining -- per-document
+transactions would need per-document index population immediately after each
+document's own commit, not deferred to the end of the whole call.
+
+### Decision: kept Stage 0's dummy_vectors/add_vector/search/dummy_table_row_count untouched
+
+Stage 1 needed a `search()`-like method returning rich chunk results, but
+Stage 0 already used that exact name (`search(vector, k) -> vector<uint64_t>`)
+with an identical parameter list -- C++ can't overload on return type alone,
+so reusing the name wasn't an option without changing Stage 0's shipped
+contract. Named the new method `search_chunks()` instead and left Stage 0's
+`add_vector`/`search`/`dummy_table_row_count`/`dummy_vectors` table
+completely alone (still their own separate usearch index, `index`, distinct
+from Stage 1's `chunk_index`). Purely additive: zero regression risk, but it
+does mean the class now carries two parallel "add a vector" paths
+permanently. Revisit in a later cleanup-focused stage -- retiring Stage 0's
+scaffolding now that Stage 1's real schema exists would be a deliberate,
+reviewed decision, not a side effect of adding Stage 1.
+
+## Stage 0
 
 ## Blocker: usearch v2.9.2 fails to compile under AppleClang
 

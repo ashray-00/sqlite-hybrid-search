@@ -1,9 +1,11 @@
-# Stage 0: the core engine library.
+# The core engine library.
 #
-# Phase 2 (GREEN): retrieval_engine.cpp now implements the RetrievalEngine
+# Phase 2 (GREEN): retrieval_engine.cpp implements the RetrievalEngine
 # interface declared in include/retrieval_engine/retrieval_engine.hpp, so
 # this is a real compiled library rather than a header-only INTERFACE target.
+# chunking.cpp (Stage 1) implements the token-window chunker.
 add_library(retrieval_engine_core
+    src/chunking.cpp
     src/retrieval_engine.cpp
 )
 add_library(retrieval_engine::core ALIAS retrieval_engine_core)
