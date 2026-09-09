@@ -40,6 +40,47 @@ to call `search_dense()` directly (mirroring how Stage 0's dummy API was
 retired once Stage 1 shipped its real replacement). Shipping both as
 independent, duplicate implementations would be the wrong outcome.
 
+**Resolved at GREEN:** retired `search_chunks()` outright and renamed the
+implementation to `search_dense()`; updated Stage 1's tests
+(`test_stage1.cpp`) to call `search_dense()` directly. No alias kept -- the
+two names would have been 100% identical in behavior forever, unlike Stage
+0's dummy API which was genuinely different data. Zero other callers existed
+(no Python bindings/CLI yet), so nothing else needed updating.
+
+### Blocker: search_sparse() didn't sanitize query_text against FTS5's query grammar
+
+**What happened:** caught in the Phase 3 independent review (the explicit
+"FTS5 query string sanitization" focus area). `search_sparse()`'s first
+GREEN implementation bound raw `query_text` straight into FTS5's MATCH
+operand. MATCH isn't a literal string -- it's parsed by FTS5's own query
+grammar (AND/OR/NOT, a leading `-` meaning NOT, quoted phrases, `column:`
+filters, `*` prefix queries). Verified against the *exact* linked SQLite3
+(not assumed): `search_sparse("ZXQ7742 -stock", ...)` raised `no such
+column: stock`, and an unbalanced quote raised `unterminated string` --
+both entirely ordinary real-world search input (a hyphenated product code,
+a stray quote) throwing instead of matching literal text.
+
+**Fix:** `BuildSafeFts5MatchQuery()` splits the input on whitespace and
+wraps each token in its own double-quoted phrase (escaping embedded `"` by
+doubling -- confirmed against the linked SQLite3 that this is FTS5's actual
+escape convention, not assumed), OR'd together. A quoted phrase is
+tokenized like ordinary text, never parsed for operators, so nothing the
+caller types can be interpreted as query syntax. OR (rather than implicit
+AND) matches typical keyword-search UX: find chunks containing *any* of the
+given terms. Added a regression test
+(`SearchSparseTreatsSpecialCharactersAsLiteralText`) covering the hyphen,
+the unbalanced quote, and an all-whitespace query.
+
+**Also reviewed, no defect found:** the 1-based rank arithmetic throughout
+RRF fusion (verified against the `1/(k+rank)` formula line by line), and
+transaction integrity for the `chunks`/`chunks_fts` dual insert (both live
+inside the same `BEGIN`/`COMMIT`/`ROLLBACK`, `chunk_id` captured once and
+reused explicitly rather than re-queried). One MINOR fix made anyway while
+in the area: added an explicit tie-breaker (`document_id`, then
+`chunk_index`) to RRF's final sort, since leaving equal-fused-score ties to
+`std::sort`'s unspecified ordering undermines the determinism an
+explainability feature should provide.
+
 ## Stage 1
 
 ### Decision: replaced istringstream with manual scanning in chunk_text() (user-requested)

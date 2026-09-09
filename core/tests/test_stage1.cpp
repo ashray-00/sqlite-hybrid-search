@@ -3,7 +3,7 @@
 //  1. Chunking.* -- retrieval_engine::chunk_text() (token-window chunker),
 //     core/include/retrieval_engine/chunking.hpp / core/src/chunking.cpp.
 //  2. RetrievalEngineStage1.* -- retrieval_engine::RetrievalEngine's
-//     add_documents()/search_chunks()/chunk_count() (core/src/detail/
+//     add_documents()/search_dense()/chunk_count() (core/src/detail/
 //     chunk_store.* as of the SOLID-split refactor; see docs/DECISIONS.md),
 //     including the constructor validation RetrievalEngine itself still
 //     owns post-split.
@@ -129,7 +129,7 @@ TEST(RetrievalEngineStage1, ConstructorRejectsZeroDimension) {
     EXPECT_THROW(retrieval_engine::RetrievalEngine(db_path, /*dim=*/0), std::invalid_argument);
 }
 
-TEST(RetrievalEngineStage1, SearchChunksReturnsExpectedDocumentAndPersistsRowCount) {
+TEST(RetrievalEngineStage1, SearchDenseReturnsExpectedDocumentAndPersistsRowCount) {
     const std::string db_path = "stage1_test_search.sqlite3";
     std::remove(db_path.c_str());
 
@@ -145,7 +145,7 @@ TEST(RetrievalEngineStage1, SearchChunksReturnsExpectedDocumentAndPersistsRowCou
     // neighbour: every other document's base direction is at least pi/10
     // radians away (a real angular separation), which dwarfs the 0.001-scale
     // intra-document perturbation.
-    const std::vector<retrieval_engine::ChunkSearchResult> top1 = engine.search_chunks(QueryVectorForDocument(7), 1);
+    const std::vector<retrieval_engine::ChunkSearchResult> top1 = engine.search_dense(QueryVectorForDocument(7), 1);
     ASSERT_EQ(top1.size(), 1u);
     EXPECT_EQ(top1[0].document_id, "doc-7");
     EXPECT_EQ(top1[0].chunk_index, 0u);
@@ -154,7 +154,7 @@ TEST(RetrievalEngineStage1, SearchChunksReturnsExpectedDocumentAndPersistsRowCou
     // document 7's three chunks, ordered by increasing perturbation
     // (chunk_index 0, 1, 2 -- see MakeSyntheticCorpus for why that ordering
     // is exact, not approximate).
-    const std::vector<retrieval_engine::ChunkSearchResult> top3 = engine.search_chunks(QueryVectorForDocument(7), 3);
+    const std::vector<retrieval_engine::ChunkSearchResult> top3 = engine.search_dense(QueryVectorForDocument(7), 3);
     ASSERT_EQ(top3.size(), 3u);
     for (std::size_t i = 0; i < 3; ++i) {
         EXPECT_EQ(top3[i].document_id, "doc-7");
@@ -182,7 +182,7 @@ TEST(RetrievalEngineStage1, DataPersistsAfterReopeningDatabase) {
     EXPECT_EQ(reopened.chunk_count(), kNumDocuments * kChunksPerDocument);
 
     const std::vector<retrieval_engine::ChunkSearchResult> top1 =
-        reopened.search_chunks(QueryVectorForDocument(2), 1);
+        reopened.search_dense(QueryVectorForDocument(2), 1);
     ASSERT_EQ(top1.size(), 1u);
     EXPECT_EQ(top1[0].document_id, "doc-2");
     EXPECT_EQ(top1[0].chunk_index, 0u);
@@ -237,13 +237,13 @@ TEST(RetrievalEngineStage1, FailedBatchLeavesNoPhantomEntriesInChunkIndex) {
     // the usearch index with no backing SQLite row. A clean rollback means
     // the index is empty too, so this returns nothing (not a phantom hit,
     // and not a thrown "index and store have desynced" error).
-    EXPECT_TRUE(engine.search_chunks(document.chunks[0].embedding, 1).empty());
+    EXPECT_TRUE(engine.search_dense(document.chunks[0].embedding, 1).empty());
 
     // The engine must still work normally afterwards.
     engine.add_documents({document});
     ASSERT_EQ(engine.chunk_count(), 1u);
     const std::vector<retrieval_engine::ChunkSearchResult> results =
-        engine.search_chunks(document.chunks[0].embedding, 1);
+        engine.search_dense(document.chunks[0].embedding, 1);
     ASSERT_EQ(results.size(), 1u);
     EXPECT_EQ(results[0].document_id, "dup");
 }

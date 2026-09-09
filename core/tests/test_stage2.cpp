@@ -132,6 +132,40 @@ TEST(RetrievalEngineStage2, EveryChunkIsSearchableBySparseText) {
     EXPECT_EQ(engine.search_sparse("ZXQ7742", 5).size(), 1u);
 }
 
+// Regression test for a BLOCKER caught in Phase 3's independent review:
+// FTS5's MATCH operand is parsed by FTS5's own query grammar (AND/OR/NOT, a
+// leading '-' meaning NOT, quoted phrases, "column:" filters), not treated
+// as literal text. A hyphenated word or an unbalanced quote -- both
+// completely ordinary in real search input -- must not throw, and must
+// still find the intended chunk by its literal text.
+TEST(RetrievalEngineStage2, SearchSparseTreatsSpecialCharactersAsLiteralText) {
+    const std::string db_path = "stage2_test_sanitization.sqlite3";
+    std::remove(db_path.c_str());
+
+    retrieval_engine::RetrievalEngine engine(db_path, kDim);
+    engine.add_documents(MakeCorpusWhereSparseAndDenseDisagree());
+
+    // A leading '-' is FTS5's NOT operator outside quotes; unescaped, this
+    // raises a SQLite error ("no such column: ZXQ7742") rather than
+    // matching. Hyphenated compound terms (product codes, negative
+    // numbers...) are completely ordinary in real search input.
+    std::vector<retrieval_engine::ChunkSearchResult> results;
+    EXPECT_NO_THROW(results = engine.search_sparse("-ZXQ7742", 5));
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_EQ(results[0].document_id, "target");
+
+    // An unbalanced double quote raises "unterminated string" outside a
+    // properly escaped phrase.
+    EXPECT_NO_THROW(results = engine.search_sparse("ZXQ7742 \"unterminated", 5));
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_EQ(results[0].document_id, "target");
+
+    // A query with no terms at all (only whitespace) matches nothing rather
+    // than producing a malformed empty MATCH expression.
+    EXPECT_NO_THROW(results = engine.search_sparse("   ", 5));
+    EXPECT_TRUE(results.empty());
+}
+
 TEST(RetrievalEngineStage2, HybridRanksExactTermMatchHigherThanDenseAlone) {
     const std::string db_path = "stage2_test_hybrid.sqlite3";
     std::remove(db_path.c_str());

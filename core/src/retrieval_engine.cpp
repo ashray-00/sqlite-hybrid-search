@@ -39,10 +39,26 @@ void RetrievalEngine::add_documents(const std::vector<DocumentInput>& documents)
     impl_->chunk_store.add_documents(documents);
 }
 
-std::vector<ChunkSearchResult> RetrievalEngine::search_chunks(const std::vector<float>& query, std::size_t k) const {
-    return impl_->chunk_store.search_chunks(query, k);
+std::size_t RetrievalEngine::chunk_count() const { return impl_->chunk_store.chunk_count(); }
+
+std::vector<ChunkSearchResult> RetrievalEngine::search_dense(const std::vector<float>& query, std::size_t k) const {
+    return impl_->chunk_store.search_dense(query, k);
 }
 
-std::size_t RetrievalEngine::chunk_count() const { return impl_->chunk_store.chunk_count(); }
+std::vector<ChunkSearchResult> RetrievalEngine::search_sparse(const std::string& query_text, std::size_t k) const {
+    return impl_->chunk_store.search_sparse(query_text, k);
+}
+
+std::vector<ChunkSearchResult> RetrievalEngine::search_hybrid(const std::string& query_text,
+                                                               const std::vector<float>& query_vec,
+                                                               std::size_t k) const {
+    return impl_->chunk_store.search_hybrid(query_text, query_vec, k);
+}
+
+std::vector<SearchExplanation> RetrievalEngine::search_explained(const std::string& query_text,
+                                                                   const std::vector<float>& query_vec,
+                                                                   std::size_t k) const {
+    return impl_->chunk_store.search_explained(query_text, query_vec, k);
+}
 
 }  // namespace retrieval_engine

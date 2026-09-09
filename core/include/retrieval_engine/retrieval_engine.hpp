@@ -28,9 +28,9 @@ struct DocumentInput {
     std::vector<DocumentChunkInput> chunks;
 };
 
-// One chunk returned by search_chunks()/search_dense()/search_sparse()/
-// search_hybrid(), with enough context to trace it back to its source
-// document without a further lookup.
+// One chunk returned by search_dense()/search_sparse()/search_hybrid(),
+// with enough context to trace it back to its source document without a
+// further lookup.
 struct ChunkSearchResult {
     std::string document_id;
     std::size_t chunk_index;  // position within that document's chunk list, 0-based
@@ -90,26 +90,15 @@ public:
     // match `dim`, or std::runtime_error on a usearch/SQLite failure.
     void add_documents(const std::vector<DocumentInput>& documents);
 
-    // Returns (up to) the `k` nearest chunks to `query` by cosine similarity,
-    // ordered nearest-first. Throws std::invalid_argument if
-    // `query.size() != dim`, or std::runtime_error on a usearch failure.
-    std::vector<ChunkSearchResult> search_chunks(const std::vector<float>& query, std::size_t k) const;
-
     // Number of chunk rows currently present in SQLite -- used to verify
     // ingestion persisted everything add_documents() was given.
     std::size_t chunk_count() const;
 
-    // Stage 2 (BUILD_PLAN.md): dense-only search -- same cosine-similarity
-    // ranking as search_chunks() above, under the name that pairs with
-    // search_sparse()/search_hybrid() below. `distance` in each result is
-    // the raw cosine distance (lower = more similar). Throws
+    // Dense-only search: returns (up to) the `k` nearest chunks to `query`
+    // by cosine similarity, ordered nearest-first. `distance` in each
+    // result is the raw cosine distance (lower = more similar). Throws
     // std::invalid_argument if `query.size() != dim`, or std::runtime_error
     // on a usearch failure.
-    //
-    // NOTE: search_chunks() and search_dense() are currently two names for
-    // the same operation; consolidating them is a deliberate decision for
-    // Phase 2 (GREEN) to make, not a side effect of adding this method --
-    // see docs/DECISIONS.md.
     std::vector<ChunkSearchResult> search_dense(const std::vector<float>& query, std::size_t k) const;
 
     // Sparse keyword search over chunk text via SQLite FTS5's bm25()

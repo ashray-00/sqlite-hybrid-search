@@ -5,7 +5,10 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
+#include <map>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 namespace retrieval_engine::detail {
@@ -42,6 +45,19 @@ ChunkStore::ChunkStore(sqlite3* db, std::size_t dim)
                                      ");",
                                      nullptr, nullptr, nullptr),
                         db_, "ChunkStore: failed to create chunks table");
+
+    // Stage 2's sparse index. A plain (not "external content") FTS5 table,
+    // populated explicitly with `rowid` set to the matching chunk_id -- see
+    // add_documents() -- rather than sourcing content from `chunks` (SQLite's
+    // recommended pattern for indexing an existing column without
+    // duplicating it), because that mode requires triggers to stay in sync
+    // across every write path, and add_documents() is currently the only
+    // one. Costs one extra copy of each chunk's text; simpler to reason
+    // about for now.
+    ThrowIfSqliteError(
+        sqlite3_exec(db_, "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text);", nullptr, nullptr,
+                     nullptr),
+        db_, "ChunkStore: failed to create chunks_fts table");
 
     RebuildIndexFromSqlite();
 }
@@ -117,6 +133,11 @@ void ChunkStore::add_documents(const std::vector<DocumentInput>& documents) {
             db_,
             "INSERT INTO chunks (document_id, chunk_index, text, start_token, end_token, embedding) "
             "VALUES (?, ?, ?, ?, ?, ?);");
+        // Unlike the usearch index below, chunks_fts is a genuine SQLite
+        // table: writing to it here, inside the same BEGIN/COMMIT as
+        // `chunks`, makes it atomic with the main insert for free -- no
+        // buffer-until-commit dance required.
+        SqliteStatement insert_chunk_fts(db_, "INSERT INTO chunks_fts(rowid, text) VALUES (?, ?);");
 
         for (const auto& document : documents) {
             sqlite3_reset(insert_document.get());
@@ -146,10 +167,20 @@ void ChunkStore::add_documents(const std::vector<DocumentInput>& documents) {
 
                 // The chunk's SQLite rowid *is* its usearch key: assigned by
                 // SQLite (not chosen by us), guaranteed unique, and cheap to
-                // map back (WHERE chunk_id = ?) when search_chunks() resolves
-                // usearch's results to their SQLite rows.
+                // map back (WHERE chunk_id = ?) when search_dense() resolves
+                // usearch's results to their SQLite rows. Reused as-is for
+                // chunks_fts's rowid, so the two stay trivially joinable.
                 const auto chunk_id = static_cast<std::uint64_t>(sqlite3_last_insert_rowid(db_));
                 pending_index_adds.emplace_back(chunk_id, &chunk.embedding);
+
+                sqlite3_reset(insert_chunk_fts.get());
+                sqlite3_bind_int64(insert_chunk_fts.get(), 1, static_cast<sqlite3_int64>(chunk_id));
+                sqlite3_bind_text(insert_chunk_fts.get(), 2, chunk.text.c_str(), -1, SQLITE_TRANSIENT);
+                if (sqlite3_step(insert_chunk_fts.get()) != SQLITE_DONE) {
+                    throw std::runtime_error(std::string("ChunkStore::add_documents: failed to insert into "
+                                                          "chunks_fts: ") +
+                                              sqlite3_errmsg(db_));
+                }
             }
         }
     } catch (...) {
@@ -175,13 +206,13 @@ void ChunkStore::add_documents(const std::vector<DocumentInput>& documents) {
     }
 }
 
-std::vector<ChunkSearchResult> ChunkStore::search_chunks(const std::vector<float>& query, std::size_t k) const {
+std::vector<ChunkSearchResult> ChunkStore::search_dense(const std::vector<float>& query, std::size_t k) const {
     if (query.size() != dimensions_)
-        throw std::invalid_argument("ChunkStore::search_chunks: query size does not match index dimensionality");
+        throw std::invalid_argument("ChunkStore::search_dense: query size does not match index dimensionality");
 
     const auto search_result = index_.search(query.data(), k);
     if (!search_result) {
-        throw std::runtime_error(std::string("ChunkStore::search_chunks: usearch query failed: ") +
+        throw std::runtime_error(std::string("ChunkStore::search_dense: usearch query failed: ") +
                                   (search_result.error.what() ? search_result.error.what() : "unknown error"));
     }
 
@@ -199,7 +230,7 @@ std::vector<ChunkSearchResult> ChunkStore::search_chunks(const std::vector<float
 
         if (sqlite3_step(lookup.get()) != SQLITE_ROW) {
             throw std::runtime_error(
-                "ChunkStore::search_chunks: usearch returned a chunk id with no matching SQLite row "
+                "ChunkStore::search_dense: usearch returned a chunk id with no matching SQLite row "
                 "(index and store have desynced)");
         }
 
@@ -212,6 +243,191 @@ std::vector<ChunkSearchResult> ChunkStore::search_chunks(const std::vector<float
     }
 
     return results;
+}
+
+namespace {
+
+// FTS5's MATCH operand isn't a literal string -- it's parsed by FTS5's own
+// query grammar (AND/OR/NOT, quoted phrases, a leading '-' meaning NOT,
+// '*' prefix queries, "column:" filters, NEAR()). Passing raw, untrusted
+// search text straight through means an ordinary hyphenated word or an
+// unbalanced quote -- both entirely normal in real search input -- throws
+// a SQLite error instead of matching literal text (verified against our
+// exact linked SQLite3: `"ZXQ7742 -stock"` raises "no such column: stock",
+// and `hello "world` raises "unterminated string").
+//
+// Splits `query_text` on whitespace and wraps each token in its own
+// double-quoted phrase (escaping embedded '"' by doubling, FTS5's string
+// escape -- confirmed against our linked build), OR'd together. Wrapping in
+// quotes takes every character out of FTS5's operator grammar entirely: a
+// quoted phrase is tokenized like ordinary document text, not parsed for
+// operators, so nothing the caller types can be interpreted as query syntax
+// -- it can only ever mean "search for this literal text". OR (rather than
+// implicit AND) matches typical keyword-search UX: find chunks containing
+// any of the given terms, ranked by BM25, not requiring every term present.
+//
+// Returns an empty string if `query_text` has no non-whitespace content.
+std::string BuildSafeFts5MatchQuery(const std::string& query_text) {
+    std::vector<std::string> quoted_terms;
+
+    const std::string_view remaining(query_text);
+    std::size_t pos = 0;
+    while (pos < remaining.size()) {
+        pos = remaining.find_first_not_of(" \t\n\r\f\v", pos);
+        if (pos == std::string_view::npos) break;
+
+        std::size_t end = remaining.find_first_of(" \t\n\r\f\v", pos);
+        if (end == std::string_view::npos) end = remaining.size();
+
+        std::string escaped_term;
+        escaped_term.reserve(end - pos);
+        for (std::size_t i = pos; i < end; ++i) {
+            escaped_term += remaining[i];
+            if (remaining[i] == '"') escaped_term += '"';  // "" is FTS5's escape for a literal quote
+        }
+        quoted_terms.push_back("\"" + escaped_term + "\"");
+
+        pos = end;
+    }
+
+    if (quoted_terms.empty()) return {};
+
+    std::string match_query = quoted_terms[0];
+    for (std::size_t i = 1; i < quoted_terms.size(); ++i) match_query += " OR " + quoted_terms[i];
+    return match_query;
+}
+
+}  // namespace
+
+std::vector<ChunkSearchResult> ChunkStore::search_sparse(const std::string& query_text, std::size_t k) const {
+    const std::string match_query = BuildSafeFts5MatchQuery(query_text);
+    if (match_query.empty()) return {};  // no search terms -- nothing can match
+
+    SqliteStatement statement(db_,
+                               "SELECT c.document_id, c.chunk_index, c.text, bm25(chunks_fts) "
+                               "FROM chunks_fts JOIN chunks c ON c.chunk_id = chunks_fts.rowid "
+                               "WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts) ASC LIMIT ?;");
+    sqlite3_bind_text(statement.get(), 1, match_query.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(statement.get(), 2, static_cast<sqlite3_int64>(k));
+
+    std::vector<ChunkSearchResult> results;
+    int step_rc;
+    while ((step_rc = sqlite3_step(statement.get())) == SQLITE_ROW) {
+        ChunkSearchResult result;
+        result.document_id = ColumnText(statement.get(), 0);
+        result.chunk_index = static_cast<std::size_t>(sqlite3_column_int64(statement.get(), 1));
+        result.text = ColumnText(statement.get(), 2);
+        result.distance = static_cast<float>(sqlite3_column_double(statement.get(), 3));
+        results.push_back(std::move(result));
+    }
+    if (step_rc != SQLITE_DONE) {
+        throw std::runtime_error(std::string("ChunkStore::search_sparse: FTS5 query failed: ") +
+                                  sqlite3_errmsg(db_));
+    }
+
+    return results;
+}
+
+namespace {
+constexpr double kRrfK = 60.0;
+}  // namespace
+
+std::vector<ChunkStore::FusionEntry> ChunkStore::FuseAndRank(const std::string& query_text,
+                                                              const std::vector<float>& query_vec,
+                                                              std::size_t k) const {
+    const std::vector<ChunkSearchResult> dense_results = search_dense(query_vec, k);
+    const std::vector<ChunkSearchResult> sparse_results = search_sparse(query_text, k);
+
+    // Keyed by (document_id, chunk_index) -- unique within this store's
+    // schema (chunk_index is 0-based position within its document) -- so a
+    // chunk hit by both rankings merges into one entry instead of two.
+    std::map<std::pair<std::string, std::size_t>, FusionEntry> entries;
+
+    for (std::size_t i = 0; i < dense_results.size(); ++i) {
+        const ChunkSearchResult& r = dense_results[i];
+        FusionEntry& entry = entries[{r.document_id, r.chunk_index}];
+        entry.document_id = r.document_id;
+        entry.chunk_index = r.chunk_index;
+        entry.text = r.text;
+        entry.dense_present = true;
+        entry.dense_distance = r.distance;
+        entry.dense_rank = i + 1;  // 1-based
+    }
+
+    for (std::size_t i = 0; i < sparse_results.size(); ++i) {
+        const ChunkSearchResult& r = sparse_results[i];
+        FusionEntry& entry = entries[{r.document_id, r.chunk_index}];
+        entry.document_id = r.document_id;
+        entry.chunk_index = r.chunk_index;
+        entry.text = r.text;
+        entry.sparse_present = true;
+        entry.sparse_bm25_score = r.distance;
+        entry.sparse_rank = i + 1;  // 1-based
+    }
+
+    std::vector<FusionEntry> sorted_entries;
+    sorted_entries.reserve(entries.size());
+    for (auto& [key, entry] : entries) {
+        entry.fused_score = 0.0f;
+        if (entry.dense_present)
+            entry.fused_score += static_cast<float>(1.0 / (kRrfK + static_cast<double>(entry.dense_rank)));
+        if (entry.sparse_present)
+            entry.fused_score += static_cast<float>(1.0 / (kRrfK + static_cast<double>(entry.sparse_rank)));
+        sorted_entries.push_back(std::move(entry));
+    }
+
+    // Break ties on fused_score deterministically (by document_id then
+    // chunk_index) rather than leaving them to std::sort's unspecified
+    // handling of equal elements -- an explainability feature (BUILD_PLAN.md
+    // Stage 2) should give the same, reproducible ordering for the same
+    // input every time, not one that happens to depend on std::map's
+    // iteration order or the sort algorithm's internal behavior.
+    std::sort(sorted_entries.begin(), sorted_entries.end(), [](const FusionEntry& a, const FusionEntry& b) {
+        if (a.fused_score != b.fused_score) return a.fused_score > b.fused_score;
+        if (a.document_id != b.document_id) return a.document_id < b.document_id;
+        return a.chunk_index < b.chunk_index;
+    });
+    if (sorted_entries.size() > k) sorted_entries.resize(k);
+
+    return sorted_entries;
+}
+
+std::vector<ChunkSearchResult> ChunkStore::search_hybrid(const std::string& query_text,
+                                                          const std::vector<float>& query_vec, std::size_t k) const {
+    const std::vector<FusionEntry> fused = FuseAndRank(query_text, query_vec, k);
+
+    std::vector<ChunkSearchResult> results;
+    results.reserve(fused.size());
+    for (const FusionEntry& entry : fused) {
+        results.push_back(ChunkSearchResult{entry.document_id, entry.chunk_index, entry.text, entry.fused_score});
+    }
+    return results;
+}
+
+std::vector<SearchExplanation> ChunkStore::search_explained(const std::string& query_text,
+                                                             const std::vector<float>& query_vec,
+                                                             std::size_t k) const {
+    const std::vector<FusionEntry> fused = FuseAndRank(query_text, query_vec, k);
+
+    std::vector<SearchExplanation> explanations;
+    explanations.reserve(fused.size());
+    for (std::size_t i = 0; i < fused.size(); ++i) {
+        const FusionEntry& entry = fused[i];
+        SearchExplanation explanation;
+        explanation.document_id = entry.document_id;
+        explanation.chunk_index = entry.chunk_index;
+        explanation.text = entry.text;
+        explanation.dense_present = entry.dense_present;
+        explanation.dense_distance = entry.dense_distance;
+        explanation.dense_rank = entry.dense_rank;
+        explanation.sparse_present = entry.sparse_present;
+        explanation.sparse_bm25_score = entry.sparse_bm25_score;
+        explanation.sparse_rank = entry.sparse_rank;
+        explanation.fused_score = entry.fused_score;
+        explanation.final_rank = i + 1;  // 1-based
+        explanations.push_back(std::move(explanation));
+    }
+    return explanations;
 }
 
 std::size_t ChunkStore::chunk_count() const {
