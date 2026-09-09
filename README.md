@@ -30,9 +30,19 @@ open, so startup is instant regardless of corpus size.
 
 ## Install
 
-Not yet published to PyPI. Build from source. You need a C++17 toolchain,
-CMake ≥ 3.24, Python ≥ 3.9 with `venv`, and SQLite (with FTS5 — the default on
-mainstream builds). `usearch` and GoogleTest are fetched automatically.
+```console
+pip install sqlite-hybrid-search
+```
+
+Prebuilt wheels cover **Linux x86-64** and **macOS (Apple Silicon)**, CPython
+3.9–3.13. On any other platform `pip` builds from the sdist — that needs the
+toolchain in [From source](#from-source-other-platforms--development) below.
+
+## From source (other platforms / development)
+
+You need a C++17 toolchain, CMake ≥ 3.24, Python ≥ 3.9 with `venv`, and SQLite
+(with FTS5 — the default on mainstream builds). `usearch` and GoogleTest are
+fetched automatically.
 
 ```console
 git clone https://github.com/ashray-00/sqlite-hybrid-search
