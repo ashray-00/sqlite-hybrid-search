@@ -11,7 +11,7 @@ namespace retrieval_engine::detail {
 // correspond to meaningful day-scale half-lives (rather than needing
 // vanishingly small lambdas if age were left in raw seconds).
 //
-// Guarantees (independent review, Stage 4 GREEN->REVIEW pass):
+// Guarantees (verified by independent review):
 //   - Always returns a finite value in [kMinRecencyFactor, 1.0]; never NaN
 //     or Inf, regardless of input.
 //   - A negative `age_seconds` (system clock stepped backwards between a

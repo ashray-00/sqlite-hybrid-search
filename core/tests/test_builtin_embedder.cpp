@@ -1,22 +1,17 @@
 // Built-in local embedding inference: the zero-setup "just give it text" path.
 //
-// Tests five not-yet-implemented members of RetrievalEngine --
-// load_embedding_model(), has_embedding_model(), embedding_dim(), embed(),
-// add_text() and search_text() -- declared in retrieval_engine.hpp but
-// with NO implementation anywhere yet. Building this test is expected to
-// FAIL at link time with undefined-symbol errors: that is the correct,
-// expected result for this pass (Phase 1, RED). Do NOT fix it by writing
-// an implementation, a tokenizer, or a text-to-vector pipeline; that is
-// Phase 2 (GREEN).
+// Covers load_embedding_model(), has_embedding_model(), embedding_dim(),
+// embed(), add_text() and search_text() on RetrievalEngine, plus the model
+// loader's error handling (missing file, unrecognized/corrupt format,
+// dimension mismatch, failed-reload-keeps-previous).
 //
-// Model file: rather than shipping a real ONNX/GGUF model into the test
-// tree, these tests write a tiny *mock* model file (see WriteMockModel()
-// and docs/DECISIONS.md for its documented contract). GREEN is expected to
-// recognize that mock header and activate a deterministic, dependency-free
-// test embedder (lexical-overlap cosine similarity) so the end-to-end text
-// path can be exercised here without a multi-megabyte download. Loading a
-// genuine ONNX/GGUF model is a separate, model-availability-gated path and
-// is out of scope for this pass.
+// These tests use a tiny *mock* model file (see WriteMockModel() and
+// docs/DECISIONS.md for its documented contract) rather than a real
+// ONNX/GGUF model: the loader recognizes the mock header and activates a
+// deterministic, dependency-free embedder (lexical-overlap cosine
+// similarity), so the end-to-end text path is exercised here with no
+// multi-megabyte download. The real ONNX backend is covered separately in
+// test_onnx_embedder.cpp.
 #include <gtest/gtest.h>
 
 #include <cmath>

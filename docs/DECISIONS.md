@@ -871,7 +871,7 @@ after the rename: C++ test NOT_BUILT (undefined symbols), 19 other C++
 tests green; Python 3 failed (uncaught AttributeError) + 9 pre-existing
 passing.
 
-## Built-in local embedding inference -- GREEN + review (Pass A: mock backend)
+## Built-in local embedding inference -- GREEN + review (mock backend)
 
 ### Blocker: ONNX Runtime, a C++ tokenizer, and a model file are all absent
 
@@ -881,9 +881,9 @@ machine: `onnxruntime` is not installed (available as `brew install
 onnxruntime`, 1.29.0 bottled, pulls abseil/onnx/protobuf/re2); Homebrew has
 no `tokenizers-cpp` / `sentencepiece`; no model file exists. Per CLAUDE.md
 directive 6 (missing libraries are surfaced, not silently worked around),
-the user was asked how to proceed and chose: **Pass A** -- ship a green,
-SOLID-structured implementation now with a deterministic mock backend --
-then **Pass B** -- install ONNX Runtime, vendor a tokenizer, download the
+the user was asked how to proceed and chose to first ship a green,
+SOLID-structured implementation with a deterministic mock backend, then
+in a follow-up install ONNX Runtime, vendor a tokenizer, download the
 model, and add the real backend behind the same interface.
 
 ### Decision: TextEmbedder interface + MockTextEmbedder + a format-sniffing loader
@@ -899,7 +899,7 @@ model, and add the real backend behind the same interface.
 - `detail/embedding_model_loader.*` -- `LoadTextEmbedder(path, expected_dim)`,
   the single place that knows concrete formats. Today it recognizes the
   mock header (`RETRIEVAL_ENGINE_MOCK_EMBEDDING_MODEL v1` + `dim=<n>`); the
-  ONNX/GGUF branch slots in here (Pass B) returning the same type.
+  ONNX/GGUF branch slots in here later, returning the same type.
 - `RetrievalEngine::Impl` gains `std::size_t dim` and
   `std::unique_ptr<TextEmbedder> embedder` (null until attached). All six
   new public methods delegate; `require_embedder()` centralizes the
@@ -932,7 +932,7 @@ short sentences with morphological variation ("install"/"installing")
 legitimately scores ~0.27, so the RED test *fixtures* were changed to
 sentences with high exact-token overlap ("python package installation
 guide" ...) -- the mock clears 0.5 honestly and the ordering assertion
-(related > unrelated) is unchanged. Pass B's real embedder will not need
+(related > unrelated) is unchanged. The real embedder will not need
 engineered overlap; the fixture is a mock-era accommodation, noted here so
 it is revisited then.
 
@@ -971,7 +971,7 @@ result in `list()` (harmless, matches the codebase's defensive-copy
 style); `CountWhitespaceTokens` restates chunk_text's token definition (one
 small function; a shared util would be scope creep).
 
-## Built-in local embedding inference -- Pass B: real ONNX Runtime backend
+## Built-in local embedding inference -- real ONNX Runtime backend
 
 ### Dependencies installed / downloaded this pass
 
@@ -1057,3 +1057,43 @@ the default 5 s discovery window.
 
 Stage 5 DONE: 35 C++ tests (ctest) + 18 Python tests (pytest) green with
 the ONNX backend; mock-only build stays green too.
+
+### Post-implementation SOLID/modularity + optimization sweep (user-requested)
+
+Re-reviewed the built-in-embedder code for single responsibility, file
+size, dead code, and per-query allocation. Findings, all fixed:
+
+- **Dead code:** `WordPieceTokenizer::TokenId()` was never called (encode()
+  does its own vocab lookup) -- removed. `pad_id_` member was stored then
+  only `(void)`-cast -- dropped the member, kept the `[PAD]`-present
+  validation. `OnnxTextEmbedder::session_options_` was used only during
+  construction -- made it a constructor-local temporary.
+- **SRP:** `OnnxTextEmbedder`'s constructor mixed session creation with
+  ~30 lines of model-signature introspection -- extracted
+  `ReadModelSignature()`. `ClassifyInput` moved from a free function
+  (which had forced `InputSlot` to be public) to a private static member,
+  so `InputSlot` is private again.
+- **Per-query allocation in `embed()`:** `Ort::MemoryInfo` was recreated
+  on every call -- now a member built once. The three `int64_t` token
+  vectors were copied into scratch buffers every call only to satisfy
+  `CreateTensor`'s non-const pointer -- now the (non-const) tokenizer
+  output is fed directly, removing three heap allocations + copies per
+  query.
+- **Per-word allocation in WordPiece:** the inner longest-match loop built
+  a fresh `std::string` (and a second `"##" + piece` string) on every
+  length it tried -- now a single `candidate` buffer is reused across the
+  whole `encode()` call, as is the `pieces` staging vector.
+- **Not changed (deliberate):** `BasicTokenize`'s intermediate string and
+  per-token `std::vector<std::string>` -- readable, bounded by input size,
+  and dwarfed by the model inference it precedes.
+
+No file exceeds ~220 lines; each detail/ component still owns one concern.
+All 35 C++ / 18 Python tests remain green (31 C++ in the mock-only build).
+
+### Cleanup: stage-number vocabulary removed from code (user-requested)
+
+Stripped remaining "Stage N" references from source and test comments and
+from scratch-file names (`stage1_test_*.sqlite3` -> `dense_retrieval_test_*`
+etc.); the RED-phase docstrings in the embedder test files were rewritten
+to describe what the tests now cover. `docs/DECISIONS.md` keeps its
+historical stage structure as the build record.

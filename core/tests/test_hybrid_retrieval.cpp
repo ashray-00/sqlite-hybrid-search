@@ -112,7 +112,7 @@ std::vector<retrieval_engine::DocumentInput> MakeCorpusWhereSparseAndDenseDisagr
 }  // namespace
 
 TEST(RetrievalEngineHybridSearch, EveryChunkIsSearchableBySparseText) {
-    const std::string db_path = "stage2_test_sync.sqlite3";
+    const std::string db_path = "hybrid_retrieval_test_sync.sqlite3";
     std::remove(db_path.c_str());
 
     retrieval_engine::RetrievalEngine engine(db_path, kDim);
@@ -135,7 +135,7 @@ TEST(RetrievalEngineHybridSearch, EveryChunkIsSearchableBySparseText) {
 // completely ordinary in real search input -- must not throw, and must
 // still find the intended chunk by its literal text.
 TEST(RetrievalEngineHybridSearch, SearchSparseTreatsSpecialCharactersAsLiteralText) {
-    const std::string db_path = "stage2_test_sanitization.sqlite3";
+    const std::string db_path = "hybrid_retrieval_test_sanitization.sqlite3";
     std::remove(db_path.c_str());
 
     retrieval_engine::RetrievalEngine engine(db_path, kDim);
@@ -163,7 +163,7 @@ TEST(RetrievalEngineHybridSearch, SearchSparseTreatsSpecialCharactersAsLiteralTe
 }
 
 TEST(RetrievalEngineHybridSearch, HybridRanksExactTermMatchHigherThanDenseAlone) {
-    const std::string db_path = "stage2_test_hybrid.sqlite3";
+    const std::string db_path = "hybrid_retrieval_test_hybrid.sqlite3";
     std::remove(db_path.c_str());
 
     retrieval_engine::RetrievalEngine engine(db_path, kDim);
@@ -194,7 +194,7 @@ TEST(RetrievalEngineHybridSearch, HybridRanksExactTermMatchHigherThanDenseAlone)
 }
 
 TEST(RetrievalEngineHybridSearch, SearchExplainedReturnsFullScoreBreakdown) {
-    const std::string db_path = "stage2_test_explain.sqlite3";
+    const std::string db_path = "hybrid_retrieval_test_explain.sqlite3";
     std::remove(db_path.c_str());
 
     retrieval_engine::RetrievalEngine engine(db_path, kDim);

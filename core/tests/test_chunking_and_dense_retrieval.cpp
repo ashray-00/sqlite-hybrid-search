@@ -121,14 +121,14 @@ std::vector<float> QueryVectorForDocument(std::size_t d) {
 }  // namespace
 
 TEST(RetrievalEngineDenseSearch, ConstructorRejectsZeroDimension) {
-    const std::string db_path = "stage1_test_zero_dim.sqlite3";
+    const std::string db_path = "dense_retrieval_test_zero_dim.sqlite3";
     std::remove(db_path.c_str());
 
     EXPECT_THROW(retrieval_engine::RetrievalEngine(db_path, /*dim=*/0), std::invalid_argument);
 }
 
 TEST(RetrievalEngineDenseSearch, SearchDenseReturnsExpectedDocumentAndPersistsRowCount) {
-    const std::string db_path = "stage1_test_search.sqlite3";
+    const std::string db_path = "dense_retrieval_test_search.sqlite3";
     std::remove(db_path.c_str());
 
     const std::vector<retrieval_engine::DocumentInput> documents = MakeSyntheticCorpus();
@@ -161,7 +161,7 @@ TEST(RetrievalEngineDenseSearch, SearchDenseReturnsExpectedDocumentAndPersistsRo
 }
 
 TEST(RetrievalEngineDenseSearch, DataPersistsAfterReopeningDatabase) {
-    const std::string db_path = "stage1_test_persistence.sqlite3";
+    const std::string db_path = "dense_retrieval_test_persistence.sqlite3";
     std::remove(db_path.c_str());
 
     const std::vector<retrieval_engine::DocumentInput> documents = MakeSyntheticCorpus();
@@ -187,7 +187,7 @@ TEST(RetrievalEngineDenseSearch, DataPersistsAfterReopeningDatabase) {
 }
 
 TEST(RetrievalEngineDenseSearch, AddDocumentsRejectsMismatchedEmbeddingDimension) {
-    const std::string db_path = "stage1_test_dim_mismatch.sqlite3";
+    const std::string db_path = "dense_retrieval_test_dim_mismatch.sqlite3";
     std::remove(db_path.c_str());
 
     retrieval_engine::RetrievalEngine engine(db_path, kDim);
@@ -211,7 +211,7 @@ TEST(RetrievalEngineDenseSearch, AddDocumentsRejectsMismatchedEmbeddingDimension
 // (BUILD_PLAN.md section 5) cannot recover from. add_documents() must defer
 // every index mutation until after SQLite's transaction commits.
 TEST(RetrievalEngineDenseSearch, FailedBatchLeavesNoPhantomEntriesInChunkIndex) {
-    const std::string db_path = "stage1_test_rollback.sqlite3";
+    const std::string db_path = "dense_retrieval_test_rollback.sqlite3";
     std::remove(db_path.c_str());
 
     retrieval_engine::RetrievalEngine engine(db_path, kDim);

@@ -1,26 +1,20 @@
 """Built-in local embedding inference ("just give it text"), from Python.
 
-Tests four methods that do not exist on the Python Engine wrapper yet
-(python/retrieval_engine/__init__.py):
+Exercises the Python Engine wrapper and the CLI for:
 
     engine.load_embedding_model(model_path)
     engine.embed(text) -> list[float]
     engine.add_text(documents)          # documents: [{"id", "text", "metadata"}]
     engine.search_text(query_text, top_k)
 
-Calling any of them is expected to make the test FAIL with an uncaught
-AttributeError -- that is the correct, expected result for this pass
-(Phase 1, RED). Do NOT fix it by implementing the Python-side API or the
-native embedder; that is Phase 2 (GREEN).
-
 The detailed embedding behavior (exact dimension, semantic-similarity
-ordering) is covered more thoroughly in the C++ suite
-(core/tests/test_builtin_embedder.cpp). This file confirms the same capability is
-reachable from the Python API once it exists.
+ordering, loader error handling) is covered more thoroughly in the C++
+suites (core/tests/test_builtin_embedder.cpp, core/tests/test_onnx_embedder.cpp);
+this file confirms the same capability is reachable from Python and the CLI.
 
-Model file: these tests write a tiny *mock* model file rather than
-downloading a real ONNX/GGUF model -- see WriteMockModel() below and
-docs/DECISIONS.md for the documented contract GREEN is expected to honor.
+Most tests use a tiny *mock* model file rather than a real ONNX/GGUF model
+(see _write_mock_model() and docs/DECISIONS.md for the contract). The two
+tests that need the real all-MiniLM-L6-v2 model skip when it is absent.
 """
 
 import math

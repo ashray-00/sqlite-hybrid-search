@@ -58,7 +58,7 @@ def test_import_retrieval_engine_bindings():
 def test_engine_add_and_search(tmp_path):
     import retrieval_engine
 
-    db_path = str(tmp_path / "stage3_test.sqlite3")
+    db_path = str(tmp_path / "bindings_cli_test.sqlite3")
     engine = retrieval_engine.Engine(db_path, 4)
 
     documents, embeddings = _sample_documents_and_embeddings()
@@ -74,7 +74,7 @@ def test_engine_add_and_search(tmp_path):
 def test_engine_search_hybrid_and_explained(tmp_path):
     import retrieval_engine
 
-    db_path = str(tmp_path / "stage3_test_hybrid.sqlite3")
+    db_path = str(tmp_path / "bindings_cli_test_hybrid.sqlite3")
     engine = retrieval_engine.Engine(db_path, 4)
 
     documents, embeddings = _sample_documents_and_embeddings()

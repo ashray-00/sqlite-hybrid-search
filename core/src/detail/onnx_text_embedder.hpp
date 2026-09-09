@@ -24,9 +24,10 @@ namespace retrieval_engine::detail {
 //
 // Thread-safety: embed() is const and safe to call concurrently from
 // multiple threads. ONNX Runtime explicitly supports concurrent Run() on a
-// single session; the tokenizer is immutable. `session_` is `mutable`
-// only because Ort::Session::Run is a non-const method, not because any
-// caller-visible state changes.
+// single session; the tokenizer and every cached member below are
+// immutable after construction. `session_` is `mutable` only because
+// Ort::Session::Run is a non-const method, not because any caller-visible
+// state changes.
 class OnnxTextEmbedder final : public TextEmbedder {
 public:
     // Loads the ONNX model at `model_path` and the WordPiece vocabulary at
@@ -39,21 +40,25 @@ public:
     std::size_t dimension() const override { return dimension_; }
     std::vector<float> embed(const std::string& text) const override;
 
-    // Which tokenized sequence feeds a given model input position. Public
-    // only so the .cpp's input-name classifier can name it.
-    enum class InputSlot { kInputIds, kAttentionMask, kTokenTypeIds };
-
 private:
+    // Which tokenized sequence feeds a given model input position.
+    enum class InputSlot { kInputIds, kAttentionMask, kTokenTypeIds };
+    static InputSlot ClassifyInput(const std::string& input_name);
+
+    // Reads and validates the model's input/output signature, populating
+    // input_slot_, the cached name pointers, and dimension_.
+    void ReadModelSignature(Ort::AllocatorWithDefaultOptions& allocator, const std::string& model_path);
+
     Ort::Env env_;
-    Ort::SessionOptions session_options_;
     mutable Ort::Session session_;
     WordPieceTokenizer tokenizer_;
+    Ort::MemoryInfo memory_info_;  // CPU allocator info, reused for every input tensor
     std::size_t dimension_ = 0;
 
-    // Input names in the model's own declared order, plus stable c_str
-    // views into them for Ort::Session::Run. `input_slot_` maps each of
-    // those positions to which tokenized sequence feeds it, so we never
-    // rely on the exporter having used a particular input order.
+    // Input names in the model's own declared order, with stable c_str
+    // views into them for Ort::Session::Run, plus which tokenized sequence
+    // feeds each position -- so we never rely on the exporter having used a
+    // particular input order.
     std::vector<std::string> input_names_;
     std::vector<const char*> input_name_ptrs_;
     std::vector<InputSlot> input_slot_;

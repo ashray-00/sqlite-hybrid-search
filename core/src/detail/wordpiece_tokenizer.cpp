@@ -151,18 +151,17 @@ WordPieceTokenizer::WordPieceTokenizer(const std::string& vocab_path) {
     cls_id_ = require("[CLS]");
     sep_id_ = require("[SEP]");
     unk_id_ = require("[UNK]");
-    pad_id_ = require("[PAD]");
-    (void)pad_id_;  // no padding is emitted (single, unbatched input); kept for completeness
-}
-
-std::int64_t WordPieceTokenizer::TokenId(const std::string& token) const {
-    const auto it = vocab_.find(token);
-    return it != vocab_.end() ? it->second : unk_id_;
+    require("[PAD]");  // validated present (a real BERT vocab has it); not emitted -- input is unbatched
 }
 
 TokenizedText WordPieceTokenizer::encode(const std::string& text) const {
     TokenizedText out;
     out.input_ids.push_back(cls_id_);
+
+    // Scratch buffers reused across every word, so the per-word WordPiece
+    // matching allocates nothing after the first few iterations.
+    std::vector<std::int64_t> pieces;
+    std::string candidate;
 
     for (const std::string& word : BasicTokenize(text)) {
         if (out.input_ids.size() >= kMaxTokens - 1) break;  // leave room for [SEP]
@@ -173,16 +172,17 @@ TokenizedText WordPieceTokenizer::encode(const std::string& text) const {
         }
 
         // Greedy longest-match-first WordPiece over `word`'s bytes.
-        std::vector<std::int64_t> pieces;
+        pieces.clear();
         std::size_t start = 0;
         bool ok = true;
         while (start < word.size()) {
             std::size_t end = word.size();
             std::int64_t matched = -1;
             while (start < end) {
-                std::string piece = word.substr(start, end - start);
-                if (start > 0) piece = "##" + piece;
-                const auto it = vocab_.find(piece);
+                candidate.clear();
+                if (start > 0) candidate.append("##");
+                candidate.append(word, start, end - start);
+                const auto it = vocab_.find(candidate);
                 if (it != vocab_.end()) {
                     matched = it->second;
                     break;

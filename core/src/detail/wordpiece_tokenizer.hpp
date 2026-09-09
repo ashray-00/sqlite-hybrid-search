@@ -52,13 +52,10 @@ private:
     static constexpr std::size_t kMaxTokens = 256;
     static constexpr std::size_t kMaxCharsPerWord = 100;
 
-    std::int64_t TokenId(const std::string& token) const;
-
     std::unordered_map<std::string, std::int64_t> vocab_;
     std::int64_t cls_id_ = 0;
     std::int64_t sep_id_ = 0;
     std::int64_t unk_id_ = 0;
-    std::int64_t pad_id_ = 0;
 };
 
 }  // namespace retrieval_engine::detail
