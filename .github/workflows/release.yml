@@ -19,6 +19,22 @@ permissions:
   contents: read
 
 jobs:
+  # Fail fast if the tag and the packaged version disagree -- otherwise a
+  # forgotten version bump silently builds e.g. 0.1.0 wheels for a v0.2.0
+  # tag, and the PyPI upload dies on "File already exists".
+  check-version:
+    name: tag matches pyproject version
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(grep -m1 -E '^version = ' pyproject.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          echo "tag=$tag  pyproject=$pkg"
+          test "$tag" = "$pkg" || { echo "::error::tag v$tag != pyproject version $pkg -- bump pyproject.toml"; exit 1; }
+
   wheels:
     name: wheels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -79,7 +95,7 @@ jobs:
 
   publish:
     name: publish to PyPI
-    needs: [wheels, sdist]
+    needs: [check-version, wheels, sdist]
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     environment: pypi            # must match the PyPI trusted-publisher config
