@@ -10,10 +10,14 @@ venv/
 __pycache__/
 *.pyc
 
-# Python packaging artifacts (Stage 3+)
+# Python packaging artifacts
 *.egg-info/
 dist/
 wheelhouse/
+
+# Mock embedding-model fixtures written by the C++ test suite
+*_mock_model.txt
+*_loadmodel_mock.txt
 
 # SQLite databases produced by running the engine/tests
 *.sqlite3

@@ -23,9 +23,18 @@ void ThrowIfSqliteError(int sqlite_rc, sqlite3* db, const std::string& context);
 // need a manual "assign before throw" dance to stay leak-safe: as long as
 // this is a member initialized before anything that can throw, ordinary
 // member-destruction-on-exception rules close it automatically.
+//
+// Every connection sets a busy_timeout so a concurrent writer never
+// surfaces SQLITE_BUSY to a reader. A read-write connection additionally
+// switches the database to WAL journalling (persisted in the file header,
+// so read-only connections pick it up) with synchronous=NORMAL -- WAL lets
+// many reader connections run against a snapshot while one writer commits
+// (ADR-11). `:memory:` databases ignore WAL harmlessly.
 class SqliteConnection {
 public:
-    explicit SqliteConnection(const std::string& db_path);
+    // `flags` are passed to sqlite3_open_v2(); the default opens (creating
+    // if absent) read-write. Pass SQLITE_OPEN_READONLY for a pooled reader.
+    explicit SqliteConnection(const std::string& db_path, int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
     ~SqliteConnection();
 
     SqliteConnection(const SqliteConnection&) = delete;

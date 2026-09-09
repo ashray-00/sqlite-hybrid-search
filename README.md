@@ -243,8 +243,16 @@ auto hits = engine.search_hybrid("Where do I live?", query_vec, /*k=*/5);
 auto memory = engine.search_memory("Where do I live?", query_vec, /*k=*/5, /*decay_lambda=*/0.1f);
 ```
 
-A single instance is **not thread-safe** — confine it to one thread or lock
-externally (one instance per thread, each with its own SQLite connection).
+One instance is safe to share across threads under a **single-writer /
+concurrent-reader** model, with no external locking: `search_*` / `embed` /
+`chunk_count` run in parallel (each on its own read-only SQLite connection
+against a WAL snapshot), while `add_documents` / `add_text` /
+`load_embedding_model` take an exclusive lock. Concurrent readers are capped
+at `std::thread::hardware_concurrency()` — an extra reader blocks until one
+returns. See [ADR-11](docs/DECISIONS.md#adr-11-concurrent-readers-single-writer).
+
+The database runs in WAL mode, so `<db>-wal` / `<db>-shm` files appear
+alongside it — back them up together, or checkpoint first.
 
 ---
 
@@ -273,8 +281,6 @@ ctest --test-dir build --output-on-failure      # C++ suite
 
 ## Roadmap
 
-- **Concurrent reads.** A single-writer / lock-free-reads model so one engine
-  instance can serve many query threads (today: one instance per thread).
 - **Batched recency lookup.** `search_memory` fetches each candidate's
   `created_at` with its own query; one batched lookup removes the
   `hybrid_decay` latency gap.

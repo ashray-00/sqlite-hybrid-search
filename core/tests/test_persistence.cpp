@@ -21,6 +21,8 @@ std::string SidecarPath(const std::string& db_path) { return db_path + ".usearch
 void RemoveArtifacts(const std::string& db_path) {
     std::error_code ec;
     std::filesystem::remove(db_path, ec);
+    std::filesystem::remove(db_path + "-wal", ec);  // WAL sidecar (ADR-11)
+    std::filesystem::remove(db_path + "-shm", ec);
     std::filesystem::remove(SidecarPath(db_path), ec);
     std::filesystem::remove(SidecarPath(db_path) + ".tmp", ec);
 }

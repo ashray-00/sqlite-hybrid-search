@@ -6,6 +6,8 @@
 #include "detail/text_embedder.hpp"
 
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -40,31 +42,36 @@ std::size_t CountWhitespaceTokens(const std::string& text) {
 }  // namespace
 
 // The private implementation (Pimpl idiom) -- keeps usearch/SQLite types out
-// of the public header. A thin composition of the one SQLite connection and
+// of the public header. A thin composition of the SQLite connection(s) and
 // the ChunkStore built on top of it (see core/src/detail/chunk_store.hpp).
 //
-// The first three members are constructed via the initializer list, in
-// declaration order (connection, then the store that needs it already
-// open), so ordinary exception-during-construction rules keep this
-// leak-safe with no manual cleanup: if `chunk_store`'s constructor throws,
-// `connection` (already fully constructed) is automatically destroyed.
+// Members are constructed in declaration order (connection, then the store
+// that needs it already open), so ordinary exception-during-construction
+// rules keep this leak-safe with no manual cleanup: if `chunk_store`'s
+// constructor throws, `connection` (already fully constructed) is
+// automatically destroyed.
 //
-// `embedder` is null until load_embedding_model() attaches one; once set it
-// is only ever read (by embed()/add_text()/search_text()), never mutated,
-// so concurrent raw-text calls do not race on it -- see
-// detail::TextEmbedder's thread-safety contract. load_embedding_model()
-// itself is a mutation and, like every other mutating method on this class,
-// must not run concurrently with other calls into the same instance.
+// Concurrency (ADR-11): `rw_mutex` gives one instance a single-writer /
+// concurrent-reader discipline. Every public read method takes a
+// std::shared_lock; add_documents()/add_text()/load_embedding_model() take a
+// std::unique_lock. The lock is non-recursive, which is safe because no
+// public method calls another public method -- each delegates straight to
+// `chunk_store` or `require_embedder()`. A future method wanting a sibling's
+// behaviour must call the private `chunk_store` path, never the public one.
+// The constructor, destructor and move operations take no lock: the caller
+// must not have a call in flight when an instance is destroyed or moved
+// (standard C++ object lifetime).
 struct RetrievalEngine::Impl {
     detail::SqliteConnection connection;
     std::size_t dim;
     detail::ChunkStore chunk_store;
     std::unique_ptr<detail::TextEmbedder> embedder;
+    mutable std::shared_mutex rw_mutex;
 
     Impl(const std::string& db_path, std::size_t dimension)
         : connection(db_path),
           dim(dimension),
-          chunk_store(connection.get(), dimension, DeriveIndexSidecarPath(db_path)) {}
+          chunk_store(connection.get(), db_path, dimension, DeriveIndexSidecarPath(db_path)) {}
 
     // Every raw-text method funnels through here so the "no model attached"
     // error message is written once and is identical everywhere.
@@ -86,42 +93,55 @@ RetrievalEngine::RetrievalEngine(RetrievalEngine&&) noexcept = default;
 RetrievalEngine& RetrievalEngine::operator=(RetrievalEngine&&) noexcept = default;
 
 void RetrievalEngine::add_documents(const std::vector<DocumentInput>& documents) {
+    std::unique_lock<std::shared_mutex> lock(impl_->rw_mutex);
     impl_->chunk_store.add_documents(documents);
 }
 
-std::size_t RetrievalEngine::chunk_count() const { return impl_->chunk_store.chunk_count(); }
+std::size_t RetrievalEngine::chunk_count() const {
+    std::shared_lock<std::shared_mutex> lock(impl_->rw_mutex);
+    return impl_->chunk_store.chunk_count();
+}
 
-bool RetrievalEngine::loaded_index_from_sidecar() const { return impl_->chunk_store.loaded_index_from_sidecar(); }
+bool RetrievalEngine::loaded_index_from_sidecar() const {
+    std::shared_lock<std::shared_mutex> lock(impl_->rw_mutex);
+    return impl_->chunk_store.loaded_index_from_sidecar();
+}
 
 std::vector<ChunkSearchResult> RetrievalEngine::search_dense(const std::vector<float>& query, std::size_t k) const {
+    std::shared_lock<std::shared_mutex> lock(impl_->rw_mutex);
     return impl_->chunk_store.search_dense(query, k);
 }
 
 std::vector<ChunkSearchResult> RetrievalEngine::search_sparse(const std::string& query_text, std::size_t k) const {
+    std::shared_lock<std::shared_mutex> lock(impl_->rw_mutex);
     return impl_->chunk_store.search_sparse(query_text, k);
 }
 
 std::vector<ChunkSearchResult> RetrievalEngine::search_hybrid(const std::string& query_text,
                                                               const std::vector<float>& query_vec,
                                                               std::size_t k) const {
+    std::shared_lock<std::shared_mutex> lock(impl_->rw_mutex);
     return impl_->chunk_store.search_hybrid(query_text, query_vec, k);
 }
 
 std::vector<SearchExplanation> RetrievalEngine::search_explained(const std::string& query_text,
                                                                  const std::vector<float>& query_vec,
                                                                  std::size_t k) const {
+    std::shared_lock<std::shared_mutex> lock(impl_->rw_mutex);
     return impl_->chunk_store.search_explained(query_text, query_vec, k);
 }
 
 std::vector<ChunkSearchResult> RetrievalEngine::search_memory(const std::string& query_text,
                                                               const std::vector<float>& query_vec, std::size_t k,
                                                               float decay_lambda) const {
+    std::shared_lock<std::shared_mutex> lock(impl_->rw_mutex);
     return impl_->chunk_store.search_memory(query_text, query_vec, k, decay_lambda);
 }
 
 std::vector<SearchExplanation> RetrievalEngine::search_memory_explained(const std::string& query_text,
                                                                         const std::vector<float>& query_vec,
                                                                         std::size_t k, float decay_lambda) const {
+    std::shared_lock<std::shared_mutex> lock(impl_->rw_mutex);
     return impl_->chunk_store.search_memory_explained(query_text, query_vec, k, decay_lambda);
 }
 
@@ -130,20 +150,30 @@ std::vector<SearchExplanation> RetrievalEngine::search_memory_explained(const st
 void RetrievalEngine::load_embedding_model(const std::string& model_path) {
     // Build the new embedder into a local first: if LoadTextEmbedder throws
     // (missing file, bad format, dimension mismatch), the previously
-    // attached model -- if any -- stays in place untouched.
+    // attached model -- if any -- stays in place untouched. Only the pointer
+    // swap needs the write lock.
     std::unique_ptr<detail::TextEmbedder> loaded = detail::LoadTextEmbedder(model_path, impl_->dim);
+    std::unique_lock<std::shared_mutex> lock(impl_->rw_mutex);
     impl_->embedder = std::move(loaded);
 }
 
-bool RetrievalEngine::has_embedding_model() const { return impl_->embedder != nullptr; }
+bool RetrievalEngine::has_embedding_model() const {
+    std::shared_lock<std::shared_mutex> lock(impl_->rw_mutex);
+    return impl_->embedder != nullptr;
+}
 
-std::size_t RetrievalEngine::embedding_dim() const { return impl_->require_embedder().dimension(); }
+std::size_t RetrievalEngine::embedding_dim() const {
+    std::shared_lock<std::shared_mutex> lock(impl_->rw_mutex);
+    return impl_->require_embedder().dimension();
+}
 
 std::vector<float> RetrievalEngine::embed(const std::string& text) const {
+    std::shared_lock<std::shared_mutex> lock(impl_->rw_mutex);
     return impl_->require_embedder().embed(text);
 }
 
 void RetrievalEngine::add_text(const std::vector<TextDocumentInput>& documents) {
+    std::unique_lock<std::shared_mutex> lock(impl_->rw_mutex);
     const detail::TextEmbedder& embedder = impl_->require_embedder();
 
     std::vector<DocumentInput> native_documents;
@@ -168,6 +198,7 @@ void RetrievalEngine::add_text(const std::vector<TextDocumentInput>& documents) 
 
 std::vector<ChunkSearchResult> RetrievalEngine::search_text(const std::string& query_text, std::size_t k,
                                                             float decay_lambda) const {
+    std::shared_lock<std::shared_mutex> lock(impl_->rw_mutex);
     const std::vector<float> query_vec = impl_->require_embedder().embed(query_text);
     return impl_->chunk_store.search_memory(query_text, query_vec, k, decay_lambda);
 }

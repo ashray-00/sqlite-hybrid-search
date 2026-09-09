@@ -81,6 +81,10 @@ NB_MODULE(_sqlite_hybrid_search_ext, m) {
     // Python-facing class is sqlite_hybrid_search.Engine (a pure-Python wrapper
     // over this), with a friendlier ingestion shape -- see
     // python/sqlite_hybrid_search/__init__.py and docs/dev-log.md.
+    // Every heavy method releases the GIL, so Python threads sharing one
+    // Engine run concurrently in the C++ core -- which is safe: the core
+    // enforces a single-writer / concurrent-reader lock discipline itself
+    // (ADR-11). No extra synchronisation is needed on the Python side.
     nb::class_<RetrievalEngine>(m, "NativeEngine")
         // Opening an existing database loads the dense index from the
         // "<db_path>.usearch" sidecar, or rebuilds it from every persisted

@@ -3,6 +3,7 @@
 #include "recency_decay.hpp"
 #include "rrf_fusion.hpp"
 #include "time_util.hpp"
+#include "usearch_util.hpp"
 
 #include <algorithm>
 #include <exception>
@@ -25,8 +26,13 @@ std::size_t SparseFetchLimit(std::size_t k) { return std::min(k, kMaxSparseCandi
 
 }  // namespace
 
-ChunkStore::ChunkStore(sqlite3* db, std::size_t dim, std::string index_sidecar_path)
-    : dimensions_(dim), index_sidecar_path_(std::move(index_sidecar_path)), repository_(db, dim), dense_index_(dim) {
+ChunkStore::ChunkStore(sqlite3* writer_db, const std::string& db_path, std::size_t dim, std::string index_sidecar_path)
+    : dimensions_(dim),
+      index_sidecar_path_(std::move(index_sidecar_path)),
+      writer_db_(writer_db),
+      repository_(writer_db, dim),
+      read_pool_(db_path, writer_db, UsearchSearchThreadCount()),
+      dense_index_(dim) {
     // Fast path: load the HNSW graph straight from the sidecar file,
     // skipping the O(N) rebuild. SQLite stays authoritative, so the loaded
     // graph is only trusted when its vector count matches the chunk table
@@ -35,7 +41,7 @@ ChunkStore::ChunkStore(sqlite3* db, std::size_t dim, std::string index_sidecar_p
     if (!index_sidecar_path_.empty() && std::filesystem::exists(index_sidecar_path_)) {
         try {
             dense_index_.Load(index_sidecar_path_);
-            if (dense_index_.size() == repository_.chunk_count()) {
+            if (dense_index_.size() == repository_.chunk_count(writer_db_)) {
                 loaded_index_from_sidecar_ = true;
                 return;
             }
@@ -51,8 +57,9 @@ ChunkStore::ChunkStore(sqlite3* db, std::size_t dim, std::string index_sidecar_p
 }
 
 void ChunkStore::RebuildIndexFromRepositoryAndPersist() {
-    repository_.ForEachChunk(
-        [this](std::uint64_t chunk_id, const std::vector<float>& embedding) { dense_index_.Add(chunk_id, embedding); });
+    repository_.ForEachChunk(writer_db_, [this](std::uint64_t chunk_id, const std::vector<float>& embedding) {
+        dense_index_.Add(chunk_id, embedding);
+    });
     PersistIndexSidecar();
 }
 
@@ -87,35 +94,50 @@ void ChunkStore::add_documents(const std::vector<DocumentInput>& documents) {
     // failure here can only ever leave it
     // lagging what's already durably in SQLite -- recoverable by rebuilding
     // it, the opposite (and architecturally sanctioned) direction of drift.
-    const auto pending = repository_.add_documents(documents);
+    const auto pending = repository_.add_documents(writer_db_, documents);
     for (const auto& [chunk_id, embedding] : pending) dense_index_.Add(chunk_id, *embedding);
 
     // The index changed, so the sidecar is now behind SQLite -- refresh it.
     PersistIndexSidecar();
 }
 
-std::size_t ChunkStore::chunk_count() const { return repository_.chunk_count(); }
+std::size_t ChunkStore::chunk_count() const {
+    const ReadConnectionPool::Handle conn = read_pool_.Acquire();
+    return repository_.chunk_count(conn.get());
+}
 
-std::vector<ChunkSearchResult> ChunkStore::search_dense(const std::vector<float>& query, std::size_t k) const {
+std::vector<ChunkSearchResult> ChunkStore::DenseSearch(sqlite3* db, const std::vector<float>& query,
+                                                       std::size_t k) const {
     const auto hits = dense_index_.Search(query, k);
 
     std::vector<ChunkSearchResult> results;
     results.reserve(hits.size());
     for (const auto& [chunk_id, distance] : hits) {
-        ChunkSearchResult result = repository_.Resolve(chunk_id);
+        ChunkSearchResult result = repository_.Resolve(db, chunk_id);
         result.score = distance;
         results.push_back(std::move(result));
     }
     return results;
 }
 
-std::vector<ChunkSearchResult> ChunkStore::search_sparse(const std::string& query_text, std::size_t k) const {
-    return repository_.SearchSparse(query_text, k);
+std::vector<ChunkSearchResult> ChunkStore::SparseSearch(sqlite3* db, const std::string& query_text,
+                                                        std::size_t k) const {
+    return repository_.SearchSparse(db, query_text, k);
 }
 
-std::vector<FusionEntry> ChunkStore::Fuse(const std::string& query_text, const std::vector<float>& query_vec,
-                                          std::size_t k) const {
-    return RrfFuse(search_dense(query_vec, k), search_sparse(query_text, SparseFetchLimit(k)), k);
+std::vector<ChunkSearchResult> ChunkStore::search_dense(const std::vector<float>& query, std::size_t k) const {
+    const ReadConnectionPool::Handle conn = read_pool_.Acquire();
+    return DenseSearch(conn.get(), query, k);
+}
+
+std::vector<ChunkSearchResult> ChunkStore::search_sparse(const std::string& query_text, std::size_t k) const {
+    const ReadConnectionPool::Handle conn = read_pool_.Acquire();
+    return SparseSearch(conn.get(), query_text, k);
+}
+
+std::vector<FusionEntry> ChunkStore::Fuse(sqlite3* db, const std::string& query_text,
+                                          const std::vector<float>& query_vec, std::size_t k) const {
+    return RrfFuse(DenseSearch(db, query_vec, k), SparseSearch(db, query_text, SparseFetchLimit(k)), k);
 }
 
 SearchExplanation ChunkStore::ExplanationFromFusionEntry(const FusionEntry& entry, std::size_t rank) {
@@ -140,7 +162,8 @@ SearchExplanation ChunkStore::ExplanationFromFusionEntry(const FusionEntry& entr
 
 std::vector<ChunkSearchResult> ChunkStore::search_hybrid(const std::string& query_text,
                                                          const std::vector<float>& query_vec, std::size_t k) const {
-    const std::vector<FusionEntry> fused = Fuse(query_text, query_vec, k);
+    const ReadConnectionPool::Handle conn = read_pool_.Acquire();
+    const std::vector<FusionEntry> fused = Fuse(conn.get(), query_text, query_vec, k);
 
     std::vector<ChunkSearchResult> results;
     results.reserve(fused.size());
@@ -152,7 +175,8 @@ std::vector<ChunkSearchResult> ChunkStore::search_hybrid(const std::string& quer
 
 std::vector<SearchExplanation> ChunkStore::search_explained(const std::string& query_text,
                                                             const std::vector<float>& query_vec, std::size_t k) const {
-    const std::vector<FusionEntry> fused = Fuse(query_text, query_vec, k);
+    const ReadConnectionPool::Handle conn = read_pool_.Acquire();
+    const std::vector<FusionEntry> fused = Fuse(conn.get(), query_text, query_vec, k);
 
     std::vector<SearchExplanation> explanations;
     explanations.reserve(fused.size());
@@ -162,16 +186,16 @@ std::vector<SearchExplanation> ChunkStore::search_explained(const std::string& q
     return explanations;
 }
 
-std::vector<ChunkStore::DecayedEntry> ChunkStore::FuseRankAndDecay(const std::string& query_text,
+std::vector<ChunkStore::DecayedEntry> ChunkStore::FuseRankAndDecay(sqlite3* db, const std::string& query_text,
                                                                    const std::vector<float>& query_vec, std::size_t k,
                                                                    float decay_lambda) const {
-    std::vector<FusionEntry> fused = Fuse(query_text, query_vec, k);
+    std::vector<FusionEntry> fused = Fuse(db, query_text, query_vec, k);
     const std::int64_t now = CurrentUnixTimeSeconds();
 
     std::vector<DecayedEntry> decayed_entries;
     decayed_entries.reserve(fused.size());
     for (FusionEntry& entry : fused) {
-        const std::int64_t created_at = repository_.GetCreatedAt(entry.document_id, entry.chunk_index);
+        const std::int64_t created_at = repository_.GetCreatedAt(db, entry.document_id, entry.chunk_index);
         const double age_seconds = static_cast<double>(now - created_at);
         const double recency_factor = ComputeRecencyFactor(age_seconds, static_cast<double>(decay_lambda));
         const float decayed_score = entry.fused_score * static_cast<float>(recency_factor);
@@ -196,7 +220,8 @@ std::vector<ChunkStore::DecayedEntry> ChunkStore::FuseRankAndDecay(const std::st
 std::vector<ChunkSearchResult> ChunkStore::search_memory(const std::string& query_text,
                                                          const std::vector<float>& query_vec, std::size_t k,
                                                          float decay_lambda) const {
-    const std::vector<DecayedEntry> decayed = FuseRankAndDecay(query_text, query_vec, k, decay_lambda);
+    const ReadConnectionPool::Handle conn = read_pool_.Acquire();
+    const std::vector<DecayedEntry> decayed = FuseRankAndDecay(conn.get(), query_text, query_vec, k, decay_lambda);
 
     std::vector<ChunkSearchResult> results;
     results.reserve(decayed.size());
@@ -210,7 +235,8 @@ std::vector<ChunkSearchResult> ChunkStore::search_memory(const std::string& quer
 std::vector<SearchExplanation> ChunkStore::search_memory_explained(const std::string& query_text,
                                                                    const std::vector<float>& query_vec, std::size_t k,
                                                                    float decay_lambda) const {
-    const std::vector<DecayedEntry> decayed = FuseRankAndDecay(query_text, query_vec, k, decay_lambda);
+    const ReadConnectionPool::Handle conn = read_pool_.Acquire();
+    const std::vector<DecayedEntry> decayed = FuseRankAndDecay(conn.get(), query_text, query_vec, k, decay_lambda);
 
     std::vector<SearchExplanation> explanations;
     explanations.reserve(decayed.size());

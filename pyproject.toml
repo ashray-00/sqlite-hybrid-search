@@ -75,6 +75,12 @@ RETRIEVAL_ENGINE_BUILD_PYTHON_BINDINGS = "ON"
 # system SQLite in /usr is found without it.
 CMAKE_PREFIX_PATH = "/opt/homebrew"
 
+[tool.pytest.ini_options]
+# The Python test suite lives in tests/. Without this, a bare `pytest` from
+# the repo root also tries to collect the vendored .py files under build*/
+# (GoogleTest's and usearch's own test scripts) and errors out.
+testpaths = ["tests"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py39"

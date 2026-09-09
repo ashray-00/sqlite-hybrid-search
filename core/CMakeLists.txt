@@ -31,6 +31,7 @@ add_library(sqlite_hybrid_search_core
     src/detail/embedding_model_loader.cpp
     src/detail/fts5_query.cpp
     src/detail/mock_text_embedder.cpp
+    src/detail/read_connection_pool.cpp
     src/detail/recency_decay.cpp
     src/detail/rrf_fusion.cpp
     src/detail/sqlite_util.cpp

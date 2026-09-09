@@ -15,8 +15,9 @@ review findings, false starts, environment friction — lives in
 | [ADR-6](#adr-6-caller-supplied-embeddings-by-default-built-in-model-optional) | Caller-supplied embeddings by default | Accepted |
 | [ADR-7](#adr-7-quote-and-or-sanitisation-of-fts5-match-input) | Quote-and-OR sanitisation of FTS5 MATCH input | Accepted |
 | [ADR-8](#adr-8-layered-python-bindings-thin-nanobind-shell--pure-python-ergonomics) | Layered Python bindings | Accepted |
-| [ADR-9](#adr-9-single-threaded-instances-no-internal-locking) | Single-threaded instances, no internal locking | Accepted |
+| [ADR-9](#adr-9-single-threaded-instances-no-internal-locking) | Single-threaded instances, no internal locking | Amended by [ADR-11](#adr-11-concurrent-readers-single-writer) |
 | [ADR-10](#adr-10-usearch-sidecar-disk-persistence) | USearch sidecar disk persistence & memory-mapping | Accepted |
+| [ADR-11](#adr-11-concurrent-readers-single-writer) | Concurrent readers, single writer | Accepted |
 
 ---
 
@@ -266,6 +267,13 @@ method releases the GIL.
 
 ## ADR-9: Single-threaded instances, no internal locking
 
+> **Amended by [ADR-11](#adr-11-concurrent-readers-single-writer).** v0.2
+> layers a bounded single-writer / concurrent-reader model on top of the
+> engine. The reasoning below about *why* concurrency needs care — the
+> mutable usearch graph, SQLite's serialised handle — still stands; what
+> changed is that the engine now owns that discipline instead of pushing it
+> onto the caller.
+
 **Context.** The engine holds a SQLite connection and a mutable usearch
 index. Making a single instance safe for concurrent calls would mean
 locking around every method or a more granular scheme.
@@ -331,3 +339,69 @@ it on open, keeping SQLite authoritative.
 - **Revisit when** a read-mostly deployment wants the extra speed and
   lower RSS of `index.view` (memory-mapping); the `DenseIndex::Load` seam
   already isolates the choice.
+
+---
+
+## ADR-11: Concurrent readers, single writer
+
+**Context.** ADR-9 confined one `RetrievalEngine` instance to a single
+thread. The two headline use cases push against that: an agent loop issues
+many concurrent `search_memory` / `search_hybrid` calls against one shared
+index while occasional `add_*` writes land, and a server request handler
+wants query parallelism without one SQLite file + HNSW graph per thread in
+RAM. usearch's `search()` is already built for concurrent readers (private
+per-thread scratch slots); SQLite's `serialized` mode already makes one
+handle thread-safe, but serialises every use of it. What was missing was an
+instance-level reader/writer discipline and real parallel reads.
+
+**Decision.** A `std::shared_mutex` in the Pimpl. Every read method
+(`search_*`, `search_memory[_explained]`, `chunk_count`, `embed`,
+`search_text`, `has_embedding_model`, `embedding_dim`,
+`loaded_index_from_sidecar`) takes a shared lock; `add_documents`,
+`add_text` and `load_embedding_model` take an exclusive lock. The lock is
+non-recursive — safe because no public method calls another; each delegates
+straight to `ChunkStore` or the embedder.
+
+For real parallel reads, `ChunkStore` owns a `ReadConnectionPool` of
+`max(1, hardware_concurrency())` `SQLITE_OPEN_READONLY` connections to the
+database file; each read checks one out for the whole fused query and
+returns it on scope exit. The writer connection turns on `journal_mode=WAL`
++ `synchronous=NORMAL` at open (persisted in the file header, so the
+read-only connections inherit it); every connection sets `busy_timeout`.
+`ChunkRepository` was made connection-stateless (every method takes the
+`sqlite3*` to run on) so one class serves both the writer and the pool.
+On `":memory:"` / anonymous databases the pool is inert — a second
+connection would open a different database — and reads serialise on the
+writer connection, as before.
+
+Public API signatures are unchanged.
+
+**Consequences.**
+- One instance safely serves concurrent readers with no external locking;
+  dense **and** sparse/hybrid/memory reads run in parallel, each on its own
+  SQLite connection against a WAL snapshot.
+- Concurrent readers are capped at `hardware_concurrency()`: the
+  `(cap + 1)`-th reader blocks on the pool's condition variable
+  (backpressure) rather than racing usearch's fixed-size per-thread search
+  slots. The pool cap and the usearch slot count are the same number by
+  construction.
+- Writes are fully exclusive: a writer blocks all readers for its whole
+  duration, including `add_text`'s internal `embed()`. Writes are the rare
+  path, and one lock over the whole operation *enforces* the single-writer
+  contract rather than trusting the caller to honour it.
+- A v0.1 database upgrades to WAL on first v0.2 open; `<db>-wal` / `<db>-shm`
+  files appear alongside it (back them up together, or checkpoint first).
+  `synchronous=NORMAL` can lose the last transaction on OS crash / power
+  loss — not on a plain app crash — which is SQLite's own recommended WAL
+  setting.
+- On a host where `hardware_concurrency()` reports 0, the pool clamps to
+  one connection and reads serialise (still correct). usearch's own
+  per-thread slot free-list is likewise sized from `hardware_concurrency()`;
+  a genuinely 0-CPU report there is a pre-existing usearch concern, out of
+  scope here.
+- **Revisit when** — (a) writers should overlap readers (two-phase locking:
+  hold the exclusive lock only around the usearch mutation, run the SQLite
+  transaction concurrently via WAL); (b) `add_text` write latency matters
+  (embed outside the lock, guarded by a model-generation counter);
+  (c) more than `hardware_concurrency()` readers must not block (raise the
+  pool cap, or a dedicated admission scheme).

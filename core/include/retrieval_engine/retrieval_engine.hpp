@@ -99,8 +99,21 @@ struct SearchExplanation {
 // Uses the Pimpl idiom so usearch/SQLite types never leak into this public
 // header.
 //
-// Not thread-safe: concurrent calls into the same instance are not
-// synchronized. Confine an instance to one thread, or add external locking.
+// Thread-safety (ADR-11): one instance is safe to share across threads under
+// a single-writer / concurrent-reader discipline, with no external locking.
+// The read methods (search_dense/sparse/hybrid/explained, search_memory[_
+// explained], chunk_count, embed, search_text, has_embedding_model,
+// embedding_dim, loaded_index_from_sidecar) may run concurrently with each
+// other. The mutating methods (add_documents, add_text, load_embedding_model)
+// take an exclusive lock: at most one may run at a time, and it blocks all
+// readers for its duration (including add_text's internal embed()). Callers
+// must not invoke any method on an instance that is being moved-from or
+// destroyed.
+//
+// Concurrent readers are capped at std::thread::hardware_concurrency(): an
+// additional reader blocks until one returns (backpressure) rather than
+// racing usearch's fixed per-thread search slots. On a host where
+// hardware_concurrency() reports 0, reads serialise on one connection.
 class RetrievalEngine {
 public:
     // Opens (or creates) the SQLite database at `db_path` and prepares a

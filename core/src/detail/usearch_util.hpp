@@ -18,9 +18,7 @@ namespace retrieval_engine::detail {
 // How many search threads a usearch index is provisioned for -- also the
 // size of the SearchSlotPool below. Clamped to >= 1 for hosts where
 // std::thread::hardware_concurrency() reports 0.
-inline std::size_t UsearchSearchThreadCount() {
-    return std::max<std::size_t>(1, std::thread::hardware_concurrency());
-}
+inline std::size_t UsearchSearchThreadCount() { return std::max<std::size_t>(1, std::thread::hardware_concurrency()); }
 
 // Grows `index`'s capacity if it's about to be exceeded (usearch requires
 // `size() < capacity()` ahead of every add()). Amortized-doubling, same
@@ -28,7 +26,8 @@ inline std::size_t UsearchSearchThreadCount() {
 // two-arg index_limits_t also sizes the per-thread `contexts_` buffers for
 // `search_threads` concurrent searchers (a mid-add reserve would otherwise
 // reset that to the default and shrink `contexts_`).
-inline void EnsureCapacity(unum::usearch::index_dense_t& index, std::size_t search_threads, const std::string& context) {
+inline void EnsureCapacity(unum::usearch::index_dense_t& index, std::size_t search_threads,
+                           const std::string& context) {
     if (index.size() != index.capacity()) return;
     const std::size_t new_capacity = index.capacity() == 0 ? 64 : index.capacity() * 2;
     if (!index.reserve(unum::usearch::index_limits_t(new_capacity, search_threads)))

@@ -1289,3 +1289,84 @@ for now (untested; the usearch AppleClang patch and MSVC are unverified).
 Verified: ctest 41/41, pytest 32/32, ruff + clang-format clean, twine
 check passes both artifacts, fresh-venv install of the renamed wheel runs
 `import sqlite_hybrid_search` and `hybrid-search ingest/query`.
+
+---
+
+## Concurrent readers, single writer (ADR-11)
+
+v0.2 feature: make one `RetrievalEngine` safe to share across query threads
+without external locking. Scope chosen with the user: full model — a
+`std::shared_mutex` in the Pimpl **plus** a read-only SQLite connection pool
++ WAL so sparse/hybrid reads parallelise too, **plus** a CI job that runs
+`ctest` (CI never did) and a ThreadSanitizer pass.
+
+### RED — `core/tests/test_concurrency.cpp` under `-DRETRIEVAL_ENGINE_SANITIZE=thread`
+
+New `RETRIEVAL_ENGINE_SANITIZE` cache option (`thread` / `address` /
+`undefined` / `address;undefined`) wires `-fsanitize=... -g -O1` into
+compile + link globally; empty default is a no-op.
+
+Three distinct failures before any fix:
+
+1. **usearch search-result outlives its thread slot.** `DenseIndex::Search`
+   called `search_result.dump_to()` *after* `index_.search()` returned — but
+   `search()` returns its private `context_t` slot to `available_threads_`
+   on return, so two concurrent `Search` calls raced on one slot's
+   `top_candidates` buffer. TSan: data races in `unum::usearch` at
+   `index.hpp:2489`, `:3498`, `:3535`, fired even in a **pure-reader** test.
+   (This also corrected an earlier misread — `index_limits_t` already
+   defaults `threads_add`/`threads_search` to `hardware_concurrency()`, so
+   there was never a `contexts_` capacity bug for ≤ hw readers.)
+2. **`impl_->embedder` swap.** `load_embedding_model`'s
+   `embedder = std::move(loaded)` raced a reader's `require_embedder()`
+   (`retrieval_engine.cpp`).
+3. **`ReadersDuringWritesStayConsistent` crash.** A writer's `add_documents`
+   → `EnsureCapacity` → `reserve()` reallocated usearch `nodes_` / `contexts_`
+   while reader threads were inside `search()` — segfault, not just a TSan
+   report.
+
+### GREEN
+
+- **usearch slot lease** (`detail/usearch_util.hpp`): a `SearchSlotPool`
+  hands `Search()` an explicit slot id `[0, max(1, hardware_concurrency()))`
+  for the *whole* call, passed to `index_.search(q, k, slot_id)`;
+  `ProvisionSearchThreads` guarantees `contexts_.size() >= pool size` at
+  construct / load / clear (also handles `hardware_concurrency() == 0`).
+  Fixed failure 1 on its own; committed ahead of the rest.
+- **`std::shared_mutex rw_mutex`** as the last `Impl` member. Every read
+  method takes `std::shared_lock`; `add_documents` / `add_text` /
+  `load_embedding_model` take `std::unique_lock`. Non-recursive — no public
+  method calls another. Fixed failures 2 and 3 (writer exclusive against
+  readers ⇒ no reader is in `search()` during `reserve()`).
+- **`ReadConnectionPool`** (`detail/read_connection_pool.{hpp,cpp}`):
+  `max(1, hardware_concurrency())` `SQLITE_OPEN_READONLY` connections; each
+  read checks one out for the whole fused query. Inert for `":memory:"` / ""
+  (a 2nd connection would open a different DB) — falls back to the writer
+  handle. `SqliteConnection` gained a flags arg + `sqlite3_open_v2`;
+  `busy_timeout` on every connection, `journal_mode=WAL` +
+  `synchronous=NORMAL` on read-write opens only.
+- **`ChunkRepository` made connection-stateless** — every method takes the
+  `sqlite3*` to run on; ctor uses `db` only for DDL. `ChunkStore` holds
+  `writer_db_` + a `mutable ReadConnectionPool` and threads the checked-out
+  connection through `Fuse` / `FuseRankAndDecay` / the dense+sparse helpers,
+  so one checkout covers a whole fused query.
+- The `(pool cap + 1)`-th concurrent reader blocks on the pool condvar
+  (backpressure) — same number as usearch's slot count, so the two bounds
+  coincide.
+
+Deferred to a future ADR-11 revisit: two-phase locking (writer overlaps
+readers via WAL, exclusive only around the usearch mutation); `add_text`
+embedding outside the lock behind a model-generation counter.
+
+### Verify
+
+- `ctest --test-dir build` — 45/45.
+- `ctest --test-dir build-tsan` (full suite, `-DRETRIEVAL_ENGINE_SANITIZE=thread`)
+  — 41/41, and `-R Concurrency --repeat until-fail:20` — clean.
+- `ctest --test-dir build-asan` (`-DRETRIEVAL_ENGINE_SANITIZE="address;undefined"`)
+  — 41/41.
+- `pytest` — 22/22 incl. new `tests/test_concurrency.py` (ThreadPoolExecutor:
+  readers match single-threaded; readers-vs-writer monotonic `chunk_count`).
+- `.github/workflows/ci.yml` added: `ctest`, `tsan`, `pytest` jobs on
+  push / PR.
+- clang-format + ruff clean.

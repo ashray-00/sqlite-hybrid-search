@@ -1,0 +1,63 @@
+name: CI
+
+# Build + test on every push and pull request:
+#   ctest  -- the C++ suite (ONNX backend off; system SQLite/FTS5)
+#   tsan   -- the same suite under ThreadSanitizer, gating the ADR-11
+#             single-writer / concurrent-reader model
+#   pytest -- the Python bindings + CLI suite against an editable install
+
+on:
+  push:
+    branches: ["**"]
+  pull_request: {}
+
+permissions:
+  contents: read
+
+jobs:
+  ctest:
+    name: ctest (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SQLite
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - name: Configure
+        run: cmake -B build -DRETRIEVAL_ENGINE_WITH_ONNX=OFF
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  tsan:
+    name: ctest + ThreadSanitizer (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SQLite
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - name: Configure
+        run: cmake -B build-tsan -DRETRIEVAL_ENGINE_WITH_ONNX=OFF -DRETRIEVAL_ENGINE_SANITIZE=thread
+      - name: Build
+        run: cmake --build build-tsan --parallel
+      - name: Test
+        run: ctest --test-dir build-tsan --output-on-failure
+      - name: Concurrency suite, repeated
+        run: ctest --test-dir build-tsan -R Concurrency --output-on-failure --repeat until-fail:20
+
+  pytest:
+    name: pytest (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SQLite
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install (editable) + test deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+      - name: Test
+        run: python -m pytest
