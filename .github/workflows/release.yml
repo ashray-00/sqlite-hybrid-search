@@ -38,9 +38,16 @@ jobs:
           CIBW_ARCHS_MACOS: "auto"        # native arch per runner (x86_64 on macos-13, arm64 on macos-14)
           # The built-in ONNX Runtime backend is a source-build opt-in; PyPI
           # wheels ship the dependency-free mock backend only.
-          CIBW_ENVIRONMENT: 'CMAKE_ARGS="-DRETRIEVAL_ENGINE_WITH_ONNX=OFF"'
+          CIBW_ENVIRONMENT_LINUX: 'CMAKE_ARGS="-DRETRIEVAL_ENGINE_WITH_ONNX=OFF"'
+          # Link the macOS SDK's system SQLite (present on every Mac, part of
+          # the OS) instead of a Homebrew build: delocate keeps system libs
+          # as plain dynamic deps, so the wheel stays clean and its
+          # deployment target is not dragged up to the runner's macOS.
+          CIBW_ENVIRONMENT_MACOS: >-
+            CMAKE_ARGS="-DRETRIEVAL_ENGINE_WITH_ONNX=OFF
+            -DSQLite3_INCLUDE_DIR=$(xcrun --show-sdk-path)/usr/include
+            -DSQLite3_LIBRARY=$(xcrun --show-sdk-path)/usr/lib/libsqlite3.tbd"
           CIBW_BEFORE_ALL_LINUX: "yum install -y sqlite-devel || dnf install -y sqlite-devel"
-          CIBW_BEFORE_ALL_MACOS: "brew install sqlite"
           # Smoke-test every wheel after auditwheel/delocate repairs it.
           CIBW_TEST_COMMAND: >-
             python -c "import sqlite_hybrid_search, tempfile, os;

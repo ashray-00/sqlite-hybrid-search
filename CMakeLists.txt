@@ -33,7 +33,9 @@ if(HOMEBREW_EXECUTABLE)
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET
     )
-    if(HOMEBREW_SQLITE_PREFIX)
+    # `brew --prefix sqlite` prints a path even when the formula is not
+    # installed, so only trust it if the library is actually there.
+    if(HOMEBREW_SQLITE_PREFIX AND EXISTS "${HOMEBREW_SQLITE_PREFIX}/lib")
         list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_SQLITE_PREFIX}")
     endif()
 endif()
