@@ -80,7 +80,7 @@ def _embed_dim(args: argparse.Namespace) -> int:
     return args.model_dim if args.model is not None else _DEFAULT_DIM
 
 
-def _make_embedder(engine: "_ext.NativeEngine", args: argparse.Namespace):
+def _make_embedder(engine: _ext.NativeEngine, args: argparse.Namespace):
     """Returns the text->vector callable for this run: the engine's built-in
     embedder when --model was given (loaded once, here), else the
     dependency-free hashing stand-in.

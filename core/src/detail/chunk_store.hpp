@@ -18,11 +18,10 @@ struct sqlite3;
 // usearch cosine-similarity sidecar), and implements Reciprocal Rank Fusion
 // (via rrf_fusion.hpp) to combine their results for search_hybrid()/
 // search_explained(). Each collaborator owns one concern and is
-// independently testable -- see their own headers -- ChunkStore's job is
-// only coordination: dimension validation up front, and (per the "SQLite is
-// authoritative, usearch is a rebuildable sidecar" architecture)
-// populating DenseIndex only *after* ChunkRepository's SQLite transaction
-// has committed, never before.
+// independently testable. ChunkStore's job is only coordination: dimension
+// validation up front, and populating DenseIndex only *after*
+// ChunkRepository's SQLite transaction has committed, never before (SQLite
+// is authoritative; the usearch index is a rebuildable sidecar).
 //
 // Non-owning: does not open or close `db` -- RetrievalEngine::Impl owns the
 // connection and outlives every store built on top of it.
@@ -38,18 +37,18 @@ public:
     std::vector<ChunkSearchResult> search_dense(const std::vector<float>& query, std::size_t k) const;
     std::vector<ChunkSearchResult> search_sparse(const std::string& query_text, std::size_t k) const;
     std::vector<ChunkSearchResult> search_hybrid(const std::string& query_text, const std::vector<float>& query_vec,
-                                                  std::size_t k) const;
-    std::vector<SearchExplanation> search_explained(const std::string& query_text,
-                                                      const std::vector<float>& query_vec, std::size_t k) const;
+                                                 std::size_t k) const;
+    std::vector<SearchExplanation> search_explained(const std::string& query_text, const std::vector<float>& query_vec,
+                                                    std::size_t k) const;
 
     // The agent memory layer: search_hybrid()'s fused score, discounted by
     // exponential recency decay and re-ranked by the result -- see
     // RetrievalEngine::search_memory()'s doc comment for the formula.
     std::vector<ChunkSearchResult> search_memory(const std::string& query_text, const std::vector<float>& query_vec,
-                                                  std::size_t k, float decay_lambda) const;
+                                                 std::size_t k, float decay_lambda) const;
     std::vector<SearchExplanation> search_memory_explained(const std::string& query_text,
-                                                             const std::vector<float>& query_vec, std::size_t k,
-                                                             float decay_lambda) const;
+                                                           const std::vector<float>& query_vec, std::size_t k,
+                                                           float decay_lambda) const;
 
 private:
     // One fused candidate plus its recency-decay outcome, produced by
@@ -69,7 +68,7 @@ private:
     // once per caller (search_hybrid(), search_explained(), and
     // FuseRankAndDecay() all used to call RrfFuse() independently).
     std::vector<FusionEntry> Fuse(const std::string& query_text, const std::vector<float>& query_vec,
-                                   std::size_t k) const;
+                                  std::size_t k) const;
 
     // Builds the shared (non-decay) fields of a SearchExplanation from one
     // fused entry at the given 1-based rank -- the common core of
@@ -79,7 +78,7 @@ private:
     static SearchExplanation ExplanationFromFusionEntry(const FusionEntry& entry, std::size_t rank);
 
     std::vector<DecayedEntry> FuseRankAndDecay(const std::string& query_text, const std::vector<float>& query_vec,
-                                                std::size_t k, float decay_lambda) const;
+                                               std::size_t k, float decay_lambda) const;
 
     std::size_t dimensions_;
     ChunkRepository repository_;

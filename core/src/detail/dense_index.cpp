@@ -21,19 +21,18 @@ void DenseIndex::Add(std::uint64_t key, const std::vector<float>& embedding) {
     const auto add_result = index_.add(static_cast<index_dense_t::vector_key_t>(key), embedding.data());
     if (!add_result) {
         throw std::runtime_error(std::string("DenseIndex::Add: usearch insertion failed: ") +
-                                  (add_result.error.what() ? add_result.error.what() : "unknown error"));
+                                 (add_result.error.what() ? add_result.error.what() : "unknown error"));
     }
 }
 
-std::vector<std::pair<std::uint64_t, float>> DenseIndex::Search(const std::vector<float>& query,
-                                                                  std::size_t k) const {
+std::vector<std::pair<std::uint64_t, float>> DenseIndex::Search(const std::vector<float>& query, std::size_t k) const {
     if (query.size() != dimensions_)
         throw std::invalid_argument("DenseIndex::Search: query size does not match index dimensionality");
 
     const auto search_result = index_.search(query.data(), k);
     if (!search_result) {
         throw std::runtime_error(std::string("DenseIndex::Search: usearch query failed: ") +
-                                  (search_result.error.what() ? search_result.error.what() : "unknown error"));
+                                 (search_result.error.what() ? search_result.error.what() : "unknown error"));
     }
 
     std::vector<std::uint64_t> keys(search_result.size());

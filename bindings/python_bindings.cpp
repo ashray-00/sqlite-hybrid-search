@@ -83,8 +83,8 @@ NB_MODULE(_retrieval_engine_ext, m) {
     // python/retrieval_engine/__init__.py and docs/DECISIONS.md.
     nb::class_<RetrievalEngine>(m, "NativeEngine")
         // Opening an existing database rebuilds the entire dense index from
-        // every persisted chunk (BUILD_PLAN.md section 5's "rebuild the
-        // sidecar" architecture) -- unbounded work for a large corpus, so
+        // every persisted chunk (usearch is a rebuildable sidecar) --
+        // unbounded work for a large corpus, so
         // this needs the same GIL release as add_documents()/search_*()
         // below, not just the obviously "long" methods.
         .def(nb::init<const std::string&, std::size_t>(), nb::arg("db_path"), nb::arg("dim"),
@@ -103,8 +103,7 @@ NB_MODULE(_retrieval_engine_ext, m) {
         .def("search_memory", &RetrievalEngine::search_memory, nb::arg("query_text"), nb::arg("query_vec"),
              nb::arg("k"), nb::arg("decay_lambda"), nb::call_guard<nb::gil_scoped_release>())
         .def("search_memory_explained", &RetrievalEngine::search_memory_explained, nb::arg("query_text"),
-             nb::arg("query_vec"), nb::arg("k"), nb::arg("decay_lambda"),
-             nb::call_guard<nb::gil_scoped_release>())
+             nb::arg("query_vec"), nb::arg("k"), nb::arg("decay_lambda"), nb::call_guard<nb::gil_scoped_release>())
         // --- Built-in local embedding model ---
         // load_embedding_model() reads a model file off disk and, for a
         // real backend, would load weights into memory -- unbounded work,
@@ -115,8 +114,7 @@ NB_MODULE(_retrieval_engine_ext, m) {
         .def("has_embedding_model", &RetrievalEngine::has_embedding_model)
         .def("embedding_dim", &RetrievalEngine::embedding_dim)
         .def("embed", &RetrievalEngine::embed, nb::arg("text"), nb::call_guard<nb::gil_scoped_release>())
-        .def("add_text", &RetrievalEngine::add_text, nb::arg("documents"),
-             nb::call_guard<nb::gil_scoped_release>())
+        .def("add_text", &RetrievalEngine::add_text, nb::arg("documents"), nb::call_guard<nb::gil_scoped_release>())
         .def("search_text", &RetrievalEngine::search_text, nb::arg("query_text"), nb::arg("k"),
              nb::arg("decay_lambda") = 0.0f, nb::call_guard<nb::gil_scoped_release>());
 }

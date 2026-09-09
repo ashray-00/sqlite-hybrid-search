@@ -41,10 +41,14 @@ Args ParseArgs(int argc, char** argv) {
     for (int i = 1; i < argc - 1; ++i) {
         const std::string flag = argv[i];
         const std::string value = argv[i + 1];
-        if (flag == "--dim") args.dim = std::stoul(value);
-        else if (flag == "--docs") args.docs = std::stoul(value);
-        else if (flag == "--queries") args.queries = std::stoul(value);
-        else if (flag == "--output") args.output = value;
+        if (flag == "--dim")
+            args.dim = std::stoul(value);
+        else if (flag == "--docs")
+            args.docs = std::stoul(value);
+        else if (flag == "--queries")
+            args.queries = std::stoul(value);
+        else if (flag == "--output")
+            args.output = value;
     }
     return args;
 }
@@ -141,8 +145,7 @@ int main(int argc, char** argv) {
     const Args args = ParseArgs(argc, argv);
 
     std::mt19937 rng(2026);
-    const std::filesystem::path db_path =
-        std::filesystem::temp_directory_path() / "retrieval_native_bench.sqlite3";
+    const std::filesystem::path db_path = std::filesystem::temp_directory_path() / "retrieval_native_bench.sqlite3";
     std::filesystem::remove(db_path);
 
     try {
@@ -152,8 +155,8 @@ int main(int argc, char** argv) {
         documents.reserve(args.docs);
         for (std::size_t i = 0; i < args.docs; ++i) {
             retrieval_engine::DocumentChunkInput chunk;
-            chunk.text = "doc " + std::to_string(i) + " token" + std::to_string(i % 997) +
-                         " token" + std::to_string(i % 131);
+            chunk.text =
+                "doc " + std::to_string(i) + " token" + std::to_string(i % 997) + " token" + std::to_string(i % 131);
             chunk.embedding = RandomUnitVector(rng, args.dim);
             chunk.start_token = 0;
             chunk.end_token = 4;
@@ -166,24 +169,19 @@ int main(int argc, char** argv) {
 
         const auto ingest_start = Clock::now();
         engine.add_documents(documents);
-        const double ingest_s =
-            std::chrono::duration<double>(Clock::now() - ingest_start).count();
-        const double ingest_docs_per_sec =
-            ingest_s > 0.0 ? static_cast<double>(args.docs) / ingest_s : 0.0;
+        const double ingest_s = std::chrono::duration<double>(Clock::now() - ingest_start).count();
+        const double ingest_docs_per_sec = ingest_s > 0.0 ? static_cast<double>(args.docs) / ingest_s : 0.0;
 
         std::vector<std::vector<float>> query_vecs;
         query_vecs.reserve(args.queries);
         for (std::size_t i = 0; i < args.queries; ++i) query_vecs.push_back(RandomUnitVector(rng, args.dim));
 
-        const LatencyStats dense = MeasureWarm(query_vecs, [&](const std::vector<float>& q) {
-            engine.search_dense(q, 10);
-        });
-        const LatencyStats hybrid = MeasureWarm(query_vecs, [&](const std::vector<float>& q) {
-            engine.search_hybrid("token1 token2", q, 10);
-        });
+        const LatencyStats dense =
+            MeasureWarm(query_vecs, [&](const std::vector<float>& q) { engine.search_dense(q, 10); });
+        const LatencyStats hybrid =
+            MeasureWarm(query_vecs, [&](const std::vector<float>& q) { engine.search_hybrid("token1 token2", q, 10); });
 
-        const double db_size_mb =
-            static_cast<double>(std::filesystem::file_size(db_path)) / 1'000'000.0;
+        const double db_size_mb = static_cast<double>(std::filesystem::file_size(db_path)) / 1'000'000.0;
 
         WriteJson(args.output, args, ingest_docs_per_sec, db_size_mb, PeakRssMb(), dense, hybrid);
         std::filesystem::remove(db_path);

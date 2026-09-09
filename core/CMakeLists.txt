@@ -23,9 +23,6 @@
 #   detail/sqlite_util.*      generic SQLite RAII helpers, shared throughout
 #   detail/time_util.hpp      "current time" helper (header-only), likewise
 #   detail/usearch_util.hpp   usearch capacity helper (header-only), likewise
-# (Earlier scaffolding, detail/dummy_vector_store.*, was removed once the
-# real feature shipped and nothing else depended on it -- see
-# docs/DECISIONS.md.)
 add_library(retrieval_engine_core
     src/chunking.cpp
     src/detail/chunk_repository.cpp

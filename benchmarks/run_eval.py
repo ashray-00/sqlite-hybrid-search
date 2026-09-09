@@ -117,9 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         for size in sizes:
             started = time.perf_counter()
             print(f"[run_eval] dataset_size={size} ...", flush=True)
-            document["results"].extend(
-                benchmark_size(size, args.queries, args.dim, args.decay, tmp_dir)
-            )
+            document["results"].extend(benchmark_size(size, args.queries, args.dim, args.decay, tmp_dir))
             print(f"[run_eval] dataset_size={size} done in {time.perf_counter() - started:.1f}s", flush=True)
 
         native_bin = None if args.no_native else _find_native_bin(args.native_bin)

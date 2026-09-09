@@ -12,13 +12,12 @@ namespace retrieval_engine::detail {
 
 ChunkStore::ChunkStore(sqlite3* db, std::size_t dim) : dimensions_(dim), repository_(db, dim), dense_index_(dim) {
     // Rebuild the dense sidecar from whatever ChunkRepository already has
-    // persisted -- the "rebuild the index from SQLite" recovery path from
-    // BUILD_PLAN.md section 5. Run unconditionally (not just after
-    // corruption), since DenseIndex doesn't persist itself, only SQLite
-    // does. A no-op on a fresh/empty database.
-    repository_.ForEachChunk([this](std::uint64_t chunk_id, const std::vector<float>& embedding) {
-        dense_index_.Add(chunk_id, embedding);
-    });
+    // persisted -- the "rebuild the index from SQLite" recovery path. Run
+    // unconditionally (not just after corruption), since DenseIndex does
+    // not persist itself, only SQLite does. A no-op on a fresh/empty
+    // database.
+    repository_.ForEachChunk(
+        [this](std::uint64_t chunk_id, const std::vector<float>& embedding) { dense_index_.Add(chunk_id, embedding); });
 }
 
 void ChunkStore::add_documents(const std::vector<DocumentInput>& documents) {
@@ -43,8 +42,8 @@ void ChunkStore::add_documents(const std::vector<DocumentInput>& documents) {
     // live in the index with no backing SQLite row if a later document in
     // the batch failed and rolled everything else back -- the exact
     // inconsistency the "SQLite is authoritative, usearch is a rebuildable
-    // sidecar" architecture (BUILD_PLAN.md section 5) doesn't support
-    // recovering from. A DenseIndex failure here can only ever leave it
+    // sidecar" architecture does not support recovering from. A DenseIndex
+    // failure here can only ever leave it
     // lagging what's already durably in SQLite -- recoverable by rebuilding
     // it, the opposite (and architecturally sanctioned) direction of drift.
     const auto pending = repository_.add_documents(documents);
@@ -71,7 +70,7 @@ std::vector<ChunkSearchResult> ChunkStore::search_sparse(const std::string& quer
 }
 
 std::vector<FusionEntry> ChunkStore::Fuse(const std::string& query_text, const std::vector<float>& query_vec,
-                                           std::size_t k) const {
+                                          std::size_t k) const {
     return RrfFuse(search_dense(query_vec, k), search_sparse(query_text, k), k);
 }
 
@@ -96,7 +95,7 @@ SearchExplanation ChunkStore::ExplanationFromFusionEntry(const FusionEntry& entr
 }
 
 std::vector<ChunkSearchResult> ChunkStore::search_hybrid(const std::string& query_text,
-                                                          const std::vector<float>& query_vec, std::size_t k) const {
+                                                         const std::vector<float>& query_vec, std::size_t k) const {
     const std::vector<FusionEntry> fused = Fuse(query_text, query_vec, k);
 
     std::vector<ChunkSearchResult> results;
@@ -108,8 +107,7 @@ std::vector<ChunkSearchResult> ChunkStore::search_hybrid(const std::string& quer
 }
 
 std::vector<SearchExplanation> ChunkStore::search_explained(const std::string& query_text,
-                                                             const std::vector<float>& query_vec,
-                                                             std::size_t k) const {
+                                                            const std::vector<float>& query_vec, std::size_t k) const {
     const std::vector<FusionEntry> fused = Fuse(query_text, query_vec, k);
 
     std::vector<SearchExplanation> explanations;
@@ -121,8 +119,8 @@ std::vector<SearchExplanation> ChunkStore::search_explained(const std::string& q
 }
 
 std::vector<ChunkStore::DecayedEntry> ChunkStore::FuseRankAndDecay(const std::string& query_text,
-                                                                    const std::vector<float>& query_vec,
-                                                                    std::size_t k, float decay_lambda) const {
+                                                                   const std::vector<float>& query_vec, std::size_t k,
+                                                                   float decay_lambda) const {
     std::vector<FusionEntry> fused = Fuse(query_text, query_vec, k);
     const std::int64_t now = CurrentUnixTimeSeconds();
 
@@ -152,22 +150,22 @@ std::vector<ChunkStore::DecayedEntry> ChunkStore::FuseRankAndDecay(const std::st
 }
 
 std::vector<ChunkSearchResult> ChunkStore::search_memory(const std::string& query_text,
-                                                          const std::vector<float>& query_vec, std::size_t k,
-                                                          float decay_lambda) const {
+                                                         const std::vector<float>& query_vec, std::size_t k,
+                                                         float decay_lambda) const {
     const std::vector<DecayedEntry> decayed = FuseRankAndDecay(query_text, query_vec, k, decay_lambda);
 
     std::vector<ChunkSearchResult> results;
     results.reserve(decayed.size());
     for (const DecayedEntry& decayed_entry : decayed) {
         results.push_back(ChunkSearchResult{decayed_entry.entry.document_id, decayed_entry.entry.chunk_index,
-                                             decayed_entry.entry.text, decayed_entry.decayed_score});
+                                            decayed_entry.entry.text, decayed_entry.decayed_score});
     }
     return results;
 }
 
 std::vector<SearchExplanation> ChunkStore::search_memory_explained(const std::string& query_text,
-                                                                    const std::vector<float>& query_vec,
-                                                                    std::size_t k, float decay_lambda) const {
+                                                                   const std::vector<float>& query_vec, std::size_t k,
+                                                                   float decay_lambda) const {
     const std::vector<DecayedEntry> decayed = FuseRankAndDecay(query_text, query_vec, k, decay_lambda);
 
     std::vector<SearchExplanation> explanations;

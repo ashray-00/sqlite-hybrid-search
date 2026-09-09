@@ -7,9 +7,8 @@
   2. Cli.* -- the `engine` console-script CLI (`engine ingest`,
      `engine query`), python/retrieval_engine/cli.py.
 
-Python-facing Engine API this file specifies (see docs/DECISIONS.md for the
-full mapping from what was originally asked to what the C++ engine actually
-exposes):
+Python-facing Engine API this file specifies (see docs/DECISIONS.md for how
+it maps onto the C++ methods it wraps):
 
     Engine(db_path: str, dim: int)
         Mirrors RetrievalEngine(db_path, dim) exactly. No index_path: the
@@ -102,9 +101,7 @@ def test_engine_search_hybrid_and_explained(tmp_path):
 def test_cli_ingest_then_query(tmp_path):
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
-    (docs_dir / "sample.txt").write_text(
-        "the quick brown fox jumps over the lazy dog", encoding="utf-8"
-    )
+    (docs_dir / "sample.txt").write_text("the quick brown fox jumps over the lazy dog", encoding="utf-8")
 
     ingest = subprocess.run(
         [str(ENGINE_CLI), "ingest", str(docs_dir)],
@@ -136,9 +133,7 @@ def test_cli_query_rejects_non_positive_top_k(tmp_path):
     docs_dir.mkdir()
     (docs_dir / "sample.txt").write_text("the quick brown fox", encoding="utf-8")
 
-    ingest = subprocess.run(
-        [str(ENGINE_CLI), "ingest", str(docs_dir)], capture_output=True, text=True, cwd=tmp_path
-    )
+    ingest = subprocess.run([str(ENGINE_CLI), "ingest", str(docs_dir)], capture_output=True, text=True, cwd=tmp_path)
     assert ingest.returncode == 0, f"ingest failed: {ingest.stderr}"
 
     query = subprocess.run(

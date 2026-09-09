@@ -36,7 +36,8 @@ std::vector<Chunk> chunk_text(const std::string& text, std::size_t window_tokens
             if (pos == std::string_view::npos) break;
 
             const std::size_t token_end = remaining.find_first_of(kWhitespace, pos);
-            const std::size_t token_len = (token_end == std::string_view::npos) ? remaining.size() - pos : token_end - pos;
+            const std::size_t token_len =
+                (token_end == std::string_view::npos) ? remaining.size() - pos : token_end - pos;
             tokens.push_back(remaining.substr(pos, token_len));
             pos += token_len;
         }

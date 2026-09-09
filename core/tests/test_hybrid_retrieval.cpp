@@ -29,17 +29,17 @@ TEST(FtsLibrary, RanksRowsByBm25Directly) {
         << (error_message ? error_message : "unknown error");
 
     ASSERT_EQ(sqlite3_exec(db,
-                            "INSERT INTO docs(rowid, text) VALUES "
-                            "(1, 'the quick brown fox'), "
-                            "(2, 'a lazy dog sleeps'), "
-                            "(3, 'fox fox fox everywhere');",
-                            nullptr, nullptr, &error_message),
+                           "INSERT INTO docs(rowid, text) VALUES "
+                           "(1, 'the quick brown fox'), "
+                           "(2, 'a lazy dog sleeps'), "
+                           "(3, 'fox fox fox everywhere');",
+                           nullptr, nullptr, &error_message),
               SQLITE_OK)
         << (error_message ? error_message : "unknown error");
 
     sqlite3_stmt* statement = nullptr;
     ASSERT_EQ(sqlite3_prepare_v2(db, "SELECT rowid, bm25(docs) FROM docs WHERE docs MATCH 'fox' ORDER BY bm25(docs);",
-                                  -1, &statement, nullptr),
+                                 -1, &statement, nullptr),
               SQLITE_OK);
 
     // Row 3 mentions "fox" three times, so BM25 must rank it best (lowest
@@ -89,9 +89,11 @@ std::vector<retrieval_engine::DocumentInput> MakeCorpusWhereSparseAndDenseDisagr
         // per-document perturbation in an unused dimension so dense search
         // ranks them deterministically: smaller index -> closer -> better
         // dense rank (1 through 4).
-        document.chunks.push_back(retrieval_engine::DocumentChunkInput{
-            noise_texts[i], {1.0f, 0.001f * static_cast<float>(i + 1), 0.0f, 0.0f}, /*start_token=*/0,
-            /*end_token=*/1});
+        document.chunks.push_back(
+            retrieval_engine::DocumentChunkInput{noise_texts[i],
+                                                 {1.0f, 0.001f * static_cast<float>(i + 1), 0.0f, 0.0f},
+                                                 /*start_token=*/0,
+                                                 /*end_token=*/1});
         documents.push_back(std::move(document));
     }
 
@@ -102,8 +104,9 @@ std::vector<retrieval_engine::DocumentInput> MakeCorpusWhereSparseAndDenseDisagr
     // worst of all five documents, so dense search ranks it 5th -- but its
     // text contains a unique exact term a keyword search finds unambiguously.
     target.chunks.push_back(retrieval_engine::DocumentChunkInput{"reference part number ZXQ7742 in stock",
-                                                                  {0.0f, 1.0f, 0.0f, 0.0f}, /*start_token=*/0,
-                                                                  /*end_token=*/4});
+                                                                 {0.0f, 1.0f, 0.0f, 0.0f},
+                                                                 /*start_token=*/0,
+                                                                 /*end_token=*/4});
     documents.push_back(std::move(target));
 
     return documents;
@@ -210,10 +213,9 @@ TEST(RetrievalEngineHybridSearch, SearchExplainedReturnsFullScoreBreakdown) {
         EXPECT_EQ(explanations[i].final_rank, i + 1);
     }
 
-    const auto target_it = std::find_if(explanations.begin(), explanations.end(),
-                                         [](const retrieval_engine::SearchExplanation& e) {
-                                             return e.document_id == "target";
-                                         });
+    const auto target_it =
+        std::find_if(explanations.begin(), explanations.end(),
+                     [](const retrieval_engine::SearchExplanation& e) { return e.document_id == "target"; });
     ASSERT_NE(target_it, explanations.end());
 
     // "target" hits both rankings: full breakdown on both sides.
@@ -226,10 +228,9 @@ TEST(RetrievalEngineHybridSearch, SearchExplainedReturnsFullScoreBreakdown) {
 
     // A noise document: present in the dense ranking, absent from sparse --
     // and correctly reported as such rather than a default/garbage value.
-    const auto noise_it = std::find_if(explanations.begin(), explanations.end(),
-                                        [](const retrieval_engine::SearchExplanation& e) {
-                                            return e.document_id == "noise-0";
-                                        });
+    const auto noise_it =
+        std::find_if(explanations.begin(), explanations.end(),
+                     [](const retrieval_engine::SearchExplanation& e) { return e.document_id == "noise-0"; });
     ASSERT_NE(noise_it, explanations.end());
     EXPECT_TRUE(noise_it->dense_present);
     EXPECT_FALSE(noise_it->sparse_present);

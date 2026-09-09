@@ -29,17 +29,14 @@ std::string Trim(const std::string& s) {
 }
 
 bool HasSuffix(const std::string& value, const std::string& suffix) {
-    return value.size() >= suffix.size() &&
-           value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+    return value.size() >= suffix.size() && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
-void ThrowIfDimensionMismatch(const std::string& model_path, std::size_t model_dim,
-                              std::size_t expected_dim) {
+void ThrowIfDimensionMismatch(const std::string& model_path, std::size_t model_dim, std::size_t expected_dim) {
     if (model_dim != expected_dim) {
-        throw std::invalid_argument("load_embedding_model: model '" + model_path + "' produces " +
-                                    std::to_string(model_dim) +
-                                    "-dimensional vectors, but the engine was constructed for " +
-                                    std::to_string(expected_dim) + " dimensions");
+        throw std::invalid_argument(
+            "load_embedding_model: model '" + model_path + "' produces " + std::to_string(model_dim) +
+            "-dimensional vectors, but the engine was constructed for " + std::to_string(expected_dim) + " dimensions");
     }
 }
 
@@ -63,8 +60,8 @@ std::size_t ParseMockDimLine(const std::string& raw_line, const std::string& mod
         consumed = 0;  // fall through to the shared error below
     }
     if (consumed != value.size() || parsed <= 0) {
-        throw std::runtime_error("load_embedding_model: malformed mock model file '" + model_path +
-                                 "': dim value '" + value + "' is not a positive integer");
+        throw std::runtime_error("load_embedding_model: malformed mock model file '" + model_path + "': dim value '" +
+                                 value + "' is not a positive integer");
     }
     return static_cast<std::size_t>(parsed);
 }
@@ -73,12 +70,10 @@ std::unique_ptr<TextEmbedder> LoadOnnxEmbedder(const std::string& model_path, st
 #ifdef RETRIEVAL_ENGINE_WITH_ONNX
     // The BERT WordPiece vocabulary lives beside the .onnx file, as it does
     // in a HuggingFace model directory.
-    const std::filesystem::path vocab_path =
-        std::filesystem::path(model_path).replace_filename("vocab.txt");
+    const std::filesystem::path vocab_path = std::filesystem::path(model_path).replace_filename("vocab.txt");
     if (!std::filesystem::exists(vocab_path)) {
         throw std::runtime_error("load_embedding_model: ONNX model '" + model_path +
-                                 "' needs a 'vocab.txt' beside it (looked for '" + vocab_path.string() +
-                                 "')");
+                                 "' needs a 'vocab.txt' beside it (looked for '" + vocab_path.string() + "')");
     }
 
     auto embedder = std::make_unique<OnnxTextEmbedder>(model_path, vocab_path.string());

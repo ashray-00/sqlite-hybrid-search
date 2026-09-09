@@ -23,8 +23,7 @@ OnnxTextEmbedder::OnnxTextEmbedder(const std::string& model_path, const std::str
           try {
               return Ort::Session(env_, model_path.c_str(), Ort::SessionOptions{});
           } catch (const Ort::Exception& e) {
-              throw std::runtime_error("OnnxTextEmbedder: failed to load ONNX model '" + model_path +
-                                       "': " + e.what());
+              throw std::runtime_error("OnnxTextEmbedder: failed to load ONNX model '" + model_path + "': " + e.what());
           }
       }()),
       tokenizer_(vocab_path),
@@ -33,12 +32,10 @@ OnnxTextEmbedder::OnnxTextEmbedder(const std::string& model_path, const std::str
     ReadModelSignature(allocator, model_path);
 }
 
-void OnnxTextEmbedder::ReadModelSignature(Ort::AllocatorWithDefaultOptions& allocator,
-                                          const std::string& model_path) {
+void OnnxTextEmbedder::ReadModelSignature(Ort::AllocatorWithDefaultOptions& allocator, const std::string& model_path) {
     const std::size_t input_count = session_.GetInputCount();
     if (input_count < 2 || input_count > 3) {
-        throw std::runtime_error("OnnxTextEmbedder: model '" + model_path + "' has " +
-                                 std::to_string(input_count) +
+        throw std::runtime_error("OnnxTextEmbedder: model '" + model_path + "' has " + std::to_string(input_count) +
                                  " inputs; expected 2 or 3 (input_ids, attention_mask[, token_type_ids])");
     }
 
@@ -55,11 +52,10 @@ void OnnxTextEmbedder::ReadModelSignature(Ort::AllocatorWithDefaultOptions& allo
     }
     output_name_ = session_.GetOutputNameAllocated(0, allocator).get();
 
-    const std::vector<std::int64_t> output_shape =
-        session_.GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
+    const std::vector<std::int64_t> output_shape = session_.GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
     if (output_shape.empty() || output_shape.back() <= 0) {
-        throw std::runtime_error("OnnxTextEmbedder: cannot determine embedding dimension from model '" +
-                                 model_path + "' output shape");
+        throw std::runtime_error("OnnxTextEmbedder: cannot determine embedding dimension from model '" + model_path +
+                                 "' output shape");
     }
     dimension_ = static_cast<std::size_t>(output_shape.back());
 
@@ -93,13 +89,13 @@ std::vector<float> OnnxTextEmbedder::embed(const std::string& text) const {
                 source = &tokens.token_type_ids;
                 break;
         }
-        input_tensors.push_back(Ort::Value::CreateTensor<std::int64_t>(
-            memory_info_, source->data(), source->size(), tensor_shape.data(), tensor_shape.size()));
+        input_tensors.push_back(Ort::Value::CreateTensor<std::int64_t>(memory_info_, source->data(), source->size(),
+                                                                       tensor_shape.data(), tensor_shape.size()));
     }
 
     std::vector<Ort::Value> outputs =
-        session_.Run(Ort::RunOptions{nullptr}, input_name_ptrs_.data(), input_tensors.data(),
-                     input_tensors.size(), output_name_ptrs_.data(), output_name_ptrs_.size());
+        session_.Run(Ort::RunOptions{nullptr}, input_name_ptrs_.data(), input_tensors.data(), input_tensors.size(),
+                     output_name_ptrs_.data(), output_name_ptrs_.size());
 
     // last_hidden_state: [1, seq_len, dimension_], row-major.
     const float* hidden_state = outputs.front().GetTensorData<float>();

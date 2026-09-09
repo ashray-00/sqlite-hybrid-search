@@ -8,8 +8,8 @@ caller.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from math import log2
-from typing import Iterable, Sequence
 
 
 def _as_set(relevant_ids: Iterable[str]) -> set[str]:
@@ -38,11 +38,7 @@ def ndcg_at_k(retrieved_ids: Sequence[str], relevant_ids: Iterable[str], k: int)
     relevant = _as_set(relevant_ids)
     if not relevant:
         return 0.0
-    dcg = sum(
-        1.0 / log2(rank + 1)
-        for rank, cid in enumerate(list(retrieved_ids)[:k], start=1)
-        if cid in relevant
-    )
+    dcg = sum(1.0 / log2(rank + 1) for rank, cid in enumerate(list(retrieved_ids)[:k], start=1) if cid in relevant)
     ideal_hits = min(len(relevant), k)
     idcg = sum(1.0 / log2(rank + 1) for rank in range(1, ideal_hits + 1))
     return dcg / idcg if idcg > 0 else 0.0

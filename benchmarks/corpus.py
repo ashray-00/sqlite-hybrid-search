@@ -35,9 +35,9 @@ _COMMON_WORDS = (
 
 @dataclass
 class LabeledCorpus:
-    documents: list[dict]          # each {"id": str, "text": str}
+    documents: list[dict]  # each {"id": str, "text": str}
     embeddings: list[list[float]]  # parallel to documents
-    queries: list[dict]            # each {"text": str, "embedding": [...], "relevant_ids": set[str]}
+    queries: list[dict]  # each {"text": str, "embedding": [...], "relevant_ids": set[str]}
     dim: int
 
 

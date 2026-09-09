@@ -37,7 +37,7 @@ TEST(Chunking, SplitsTextIntoOverlappingTokenWindows) {
     const std::string text = MakeTokenizedText("doc", 9);
 
     const std::vector<retrieval_engine::Chunk> chunks = retrieval_engine::chunk_text(text, /*window_tokens=*/5,
-                                                                                      /*overlap_tokens=*/2);
+                                                                                     /*overlap_tokens=*/2);
 
     ASSERT_EQ(chunks.size(), 3u);
 
@@ -179,8 +179,7 @@ TEST(RetrievalEngineDenseSearch, DataPersistsAfterReopeningDatabase) {
     retrieval_engine::RetrievalEngine reopened(db_path, kDim);
     EXPECT_EQ(reopened.chunk_count(), kNumDocuments * kChunksPerDocument);
 
-    const std::vector<retrieval_engine::ChunkSearchResult> top1 =
-        reopened.search_dense(QueryVectorForDocument(2), 1);
+    const std::vector<retrieval_engine::ChunkSearchResult> top1 = reopened.search_dense(QueryVectorForDocument(2), 1);
     ASSERT_EQ(top1.size(), 1u);
     EXPECT_EQ(top1[0].document_id, "doc-2");
     EXPECT_EQ(top1[0].chunk_index, 0u);
@@ -208,7 +207,7 @@ TEST(RetrievalEngineDenseSearch, AddDocumentsRejectsMismatchedEmbeddingDimension
 // vectors permanently live in the index after a later document in the same
 // batch failed and rolled SQLite back -- a usearch entry with no backing
 // row, which the "SQLite authoritative, usearch rebuildable" architecture
-// (BUILD_PLAN.md section 5) cannot recover from. add_documents() must defer
+// cannot recover from. add_documents() must defer
 // every index mutation until after SQLite's transaction commits.
 TEST(RetrievalEngineDenseSearch, FailedBatchLeavesNoPhantomEntriesInChunkIndex) {
     const std::string db_path = "dense_retrieval_test_rollback.sqlite3";
@@ -219,9 +218,10 @@ TEST(RetrievalEngineDenseSearch, FailedBatchLeavesNoPhantomEntriesInChunkIndex) 
     retrieval_engine::DocumentInput document;
     document.document_id = "dup";
     document.metadata = "m";
-    document.chunks.push_back(
-        retrieval_engine::DocumentChunkInput{"hello world", {1.0f, 0.0f, 0.0f, 0.0f}, /*start_token=*/0,
-                                              /*end_token=*/2});
+    document.chunks.push_back(retrieval_engine::DocumentChunkInput{"hello world",
+                                                                   {1.0f, 0.0f, 0.0f, 0.0f},
+                                                                   /*start_token=*/0,
+                                                                   /*end_token=*/2});
 
     // Two documents sharing the same document_id in one batch: the second
     // INSERT INTO documents violates the PRIMARY KEY constraint, so the

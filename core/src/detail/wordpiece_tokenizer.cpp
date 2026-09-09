@@ -18,8 +18,7 @@ bool IsAsciiWhitespace(unsigned char c) {
 // Unicode's punctuation categories, which we don't decode -- as standalone
 // tokens.
 bool IsAsciiPunctuation(unsigned char c) {
-    return (c >= '!' && c <= '/') || (c >= ':' && c <= '@') || (c >= '[' && c <= '`') ||
-           (c >= '{' && c <= '~');
+    return (c >= '!' && c <= '/') || (c >= ':' && c <= '@') || (c >= '[' && c <= '`') || (c >= '{' && c <= '~');
 }
 
 unsigned char AsciiLower(unsigned char c) {
@@ -65,9 +64,8 @@ std::uint32_t NextCodepoint(const std::string& bytes, std::size_t& i) {
 }
 
 bool IsCjkCodepoint(std::uint32_t cp) {
-    return (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3400 && cp <= 0x4DBF) ||
-           (cp >= 0x20000 && cp <= 0x2A6DF) || (cp >= 0x2A700 && cp <= 0x2B73F) ||
-           (cp >= 0x2B740 && cp <= 0x2B81F) || (cp >= 0x2B820 && cp <= 0x2CEAF) ||
+    return (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0x20000 && cp <= 0x2A6DF) ||
+           (cp >= 0x2A700 && cp <= 0x2B73F) || (cp >= 0x2B740 && cp <= 0x2B81F) || (cp >= 0x2B820 && cp <= 0x2CEAF) ||
            (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0x2F800 && cp <= 0x2FA1F);
 }
 

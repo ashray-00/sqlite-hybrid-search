@@ -47,14 +47,14 @@ public:
 
     // Streams every currently-stored chunk's (chunk_id, embedding) to
     // `visitor`, in no particular order -- for ChunkStore's constructor to
-    // rebuild a DenseIndex from persisted state (BUILD_PLAN.md section 5's
-    // "rebuild the sidecar" architecture). A no-op on a fresh/empty
+    // rebuild a DenseIndex from persisted state (the rebuildable-sidecar
+    // architecture). A no-op on a fresh/empty
     // database. Throws std::runtime_error if a stored embedding's size
     // doesn't match this repository's dimensionality (this database may
     // have been created with a different `dim`), or on any other SQLite
     // failure.
-    void ForEachChunk(const std::function<void(std::uint64_t chunk_id, const std::vector<float>& embedding)>&
-                           visitor) const;
+    void ForEachChunk(
+        const std::function<void(std::uint64_t chunk_id, const std::vector<float>& embedding)>& visitor) const;
 
     // Sparse keyword search over chunk text via SQLite FTS5's bm25()
     // ranking function, ordered most-relevant-first. `query_text` is
@@ -80,7 +80,7 @@ private:
     // themselves are still prepared once per batch, not once per row.
     void InsertDocumentRow(sqlite3_stmt* statement, const DocumentInput& document) const;
     std::uint64_t InsertChunkRow(sqlite3_stmt* statement, const std::string& document_id, std::size_t chunk_index,
-                                  const DocumentChunkInput& chunk) const;
+                                 const DocumentChunkInput& chunk) const;
     void InsertChunkFtsRow(sqlite3_stmt* statement, std::uint64_t chunk_id, const std::string& text) const;
 
     sqlite3* db_;

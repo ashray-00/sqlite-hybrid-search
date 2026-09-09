@@ -12,8 +12,8 @@ namespace retrieval_engine::detail {
 // input, for a single (unbatched) piece of text.
 struct TokenizedText {
     std::vector<std::int64_t> input_ids;
-    std::vector<std::int64_t> attention_mask;   // 1 for real tokens (all 1s here -- no padding)
-    std::vector<std::int64_t> token_type_ids;   // all 0s for single-sentence input
+    std::vector<std::int64_t> attention_mask;  // 1 for real tokens (all 1s here -- no padding)
+    std::vector<std::int64_t> token_type_ids;  // all 0s for single-sentence input
 };
 
 // A compact, dependency-free BERT WordPiece tokenizer -- enough to feed

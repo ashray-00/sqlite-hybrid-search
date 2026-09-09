@@ -76,9 +76,9 @@ struct SearchExplanation {
     float dense_distance;    // raw cosine distance from search_dense() (meaningful only if dense_present)
     std::size_t dense_rank;  // 1-based rank within the dense-only result list (0 if dense_present is false)
 
-    bool sparse_present;       // true if this chunk was among search_sparse()'s results
-    float sparse_bm25_score;   // raw FTS5 bm25() score, lower = more relevant (meaningful only if sparse_present)
-    std::size_t sparse_rank;   // 1-based rank within the sparse-only result list (0 if sparse_present is false)
+    bool sparse_present;      // true if this chunk was among search_sparse()'s results
+    float sparse_bm25_score;  // raw FTS5 bm25() score, lower = more relevant (meaningful only if sparse_present)
+    std::size_t sparse_rank;  // 1-based rank within the sparse-only result list (0 if sparse_present is false)
 
     float fused_score;       // Reciprocal Rank Fusion score (k=60), higher = more relevant
     std::size_t final_rank;  // 1-based rank within the fused/hybrid result list
@@ -92,16 +92,15 @@ struct SearchExplanation {
     float decayed_score = 0.0f;                // fused_score * recency_factor
 };
 
-// RetrievalEngine ties a usearch HNSW index (in-memory acceleration
-// structure) to a SQLite database (source of truth for vectors/metadata),
-// per the architecture in BUILD_PLAN.md section 5.
+// RetrievalEngine ties a usearch HNSW index (an in-memory acceleration
+// structure) to a SQLite database (the source of truth for vectors and
+// metadata; the index is a rebuildable sidecar).
 //
 // Uses the Pimpl idiom so usearch/SQLite types never leak into this public
-// header, matching the "thin C++ API" note in BUILD_PLAN.md section 5.
+// header.
 //
-// Not thread-safe: concurrent calls into the same instance (from multiple
-// threads) are not synchronized. Confine an instance to one thread, or add
-// external locking, until a later stage addresses concurrency explicitly.
+// Not thread-safe: concurrent calls into the same instance are not
+// synchronized. Confine an instance to one thread, or add external locking.
 class RetrievalEngine {
 public:
     // Opens (or creates) the SQLite database at `db_path` and prepares a
@@ -118,7 +117,7 @@ public:
     // same `db_path`: a freshly-constructed RetrievalEngine reloads existing
     // chunk rows from SQLite and rebuilds the chunk-search index from them,
     // per the "SQLite is authoritative, usearch is a rebuildable sidecar"
-    // architecture in BUILD_PLAN.md section 5.
+    // architecture.
     //
     // Throws std::invalid_argument if any chunk's embedding size doesn't
     // match `dim`, or std::runtime_error on a usearch/SQLite failure.
@@ -152,14 +151,14 @@ public:
     // Throws under the same conditions as search_dense() and
     // search_sparse().
     std::vector<ChunkSearchResult> search_hybrid(const std::string& query_text, const std::vector<float>& query_vec,
-                                                  std::size_t k) const;
+                                                 std::size_t k) const;
 
     // Like search_hybrid(), but returns the full per-result score breakdown
     // (dense distance/rank, sparse bm25/rank, fused score, final rank)
     // instead of just the fused ranking -- for debugging and tuning
     // relevance. Throws under the same conditions as search_hybrid().
-    std::vector<SearchExplanation> search_explained(const std::string& query_text,
-                                                      const std::vector<float>& query_vec, std::size_t k) const;
+    std::vector<SearchExplanation> search_explained(const std::string& query_text, const std::vector<float>& query_vec,
+                                                    std::size_t k) const;
 
     // The agent memory layer: applies exponential recency decay on top of
     // search_hybrid()'s fused score and re-ranks by the result, so a
@@ -177,7 +176,7 @@ public:
     // doc comment for the exact floor). `score` in each result holds
     // decayed_score. Throws under the same conditions as search_hybrid().
     std::vector<ChunkSearchResult> search_memory(const std::string& query_text, const std::vector<float>& query_vec,
-                                                  std::size_t k, float decay_lambda) const;
+                                                 std::size_t k, float decay_lambda) const;
 
     // Like search_memory(), but returns the full per-result score breakdown
     // (as search_explained(), plus the recency-decay fields: timestamp,
@@ -185,8 +184,8 @@ public:
     // tuning the decay parameter. Throws under the same conditions as
     // search_memory().
     std::vector<SearchExplanation> search_memory_explained(const std::string& query_text,
-                                                             const std::vector<float>& query_vec, std::size_t k,
-                                                             float decay_lambda) const;
+                                                           const std::vector<float>& query_vec, std::size_t k,
+                                                           float decay_lambda) const;
 
     // --- Built-in local embedding model ---------------------------------
     // The zero-setup "just give it text" path.
@@ -232,7 +231,7 @@ public:
     // search_memory()'s decayed fused score (higher = more relevant).
     // Throws std::logic_error if no model is attached.
     std::vector<ChunkSearchResult> search_text(const std::string& query_text, std::size_t k,
-                                                float decay_lambda = 0.0f) const;
+                                               float decay_lambda = 0.0f) const;
 
     RetrievalEngine(const RetrievalEngine&) = delete;
     RetrievalEngine& operator=(const RetrievalEngine&) = delete;

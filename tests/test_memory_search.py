@@ -103,9 +103,7 @@ def test_cli_query_supports_decay_flag(tmp_path):
     docs_dir.mkdir()
     (docs_dir / "sample.txt").write_text("the quick brown fox", encoding="utf-8")
 
-    ingest = subprocess.run(
-        [str(ENGINE_CLI), "ingest", str(docs_dir)], capture_output=True, text=True, cwd=tmp_path
-    )
+    ingest = subprocess.run([str(ENGINE_CLI), "ingest", str(docs_dir)], capture_output=True, text=True, cwd=tmp_path)
     assert ingest.returncode == 0, f"ingest failed: {ingest.stderr}"
 
     query = subprocess.run(
@@ -123,9 +121,7 @@ def test_cli_query_supports_explain_flag(tmp_path):
     docs_dir.mkdir()
     (docs_dir / "sample.txt").write_text("the quick brown fox", encoding="utf-8")
 
-    ingest = subprocess.run(
-        [str(ENGINE_CLI), "ingest", str(docs_dir)], capture_output=True, text=True, cwd=tmp_path
-    )
+    ingest = subprocess.run([str(ENGINE_CLI), "ingest", str(docs_dir)], capture_output=True, text=True, cwd=tmp_path)
     assert ingest.returncode == 0, f"ingest failed: {ingest.stderr}"
 
     query = subprocess.run(

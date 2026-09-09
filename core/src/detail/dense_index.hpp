@@ -9,10 +9,9 @@
 
 // A thin, storage-agnostic wrapper around a cosine-similarity usearch index:
 // knows nothing about SQLite or the chunks schema, only integer keys and
-// vectors. Rebuilding this from persisted state on open (BUILD_PLAN.md
-// section 5's "usearch is a rebuildable sidecar" architecture) is the
-// caller's job -- see ChunkRepository::ForEachChunk() and ChunkStore's
-// constructor.
+// vectors. Rebuilding this from persisted state on open (usearch is a
+// rebuildable sidecar; SQLite is authoritative) is the caller's job --
+// see ChunkRepository::ForEachChunk() and ChunkStore's constructor.
 namespace retrieval_engine::detail {
 
 class DenseIndex {

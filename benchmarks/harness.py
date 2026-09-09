@@ -25,10 +25,9 @@ import time
 from typing import Callable
 
 import retrieval_engine  # noqa: F401  -- ensures the extension is importable
-from retrieval_engine import _retrieval_engine_ext as _ext
-
 from corpus import LabeledCorpus, build_corpus
 from metrics import mrr_at_k, ndcg_at_k, recall_at_k
+from retrieval_engine import _retrieval_engine_ext as _ext
 
 APPROACHES = ("dense", "sparse", "hybrid", "hybrid_decay")
 K = 10

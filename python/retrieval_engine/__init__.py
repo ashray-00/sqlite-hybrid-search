@@ -1,5 +1,5 @@
 """retrieval_engine: an embeddable, local-first hybrid (dense + sparse)
-retrieval engine (BUILD_PLAN.md).
+retrieval and agent-memory engine.
 
 This package is a thin Python layer over `_retrieval_engine_ext`, the
 compiled nanobind extension module (bindings/python_bindings.cpp). The
@@ -29,7 +29,7 @@ from . import _retrieval_engine_ext as _ext
 __all__ = ["Engine"]
 
 
-def _chunk_result_to_dict(result: "_ext.ChunkSearchResult") -> dict[str, Any]:
+def _chunk_result_to_dict(result: _ext.ChunkSearchResult) -> dict[str, Any]:
     return {
         "document_id": result.document_id,
         "chunk_index": result.chunk_index,
@@ -38,7 +38,7 @@ def _chunk_result_to_dict(result: "_ext.ChunkSearchResult") -> dict[str, Any]:
     }
 
 
-def _explanation_to_dict(explanation: "_ext.SearchExplanation") -> dict[str, Any]:
+def _explanation_to_dict(explanation: _ext.SearchExplanation) -> dict[str, Any]:
     return {
         "document_id": explanation.document_id,
         "chunk_index": explanation.chunk_index,
@@ -188,15 +188,10 @@ class Engine:
             native_documents.append(native_document)
         self._native.add_text(native_documents)
 
-    def search_text(
-        self, query_text: str, top_k: int, decay_lambda: float = 0.0
-    ) -> list[dict[str, Any]]:
+    def search_text(self, query_text: str, top_k: int, decay_lambda: float = 0.0) -> list[dict[str, Any]]:
         """Raw-text query: embeds `query_text` with the attached model and
         runs the memory search with it -- see RetrievalEngine::search_text().
         `decay_lambda=0` (the default) disables recency decay. Raises if no
         model is attached.
         """
-        return [
-            _chunk_result_to_dict(r)
-            for r in self._native.search_text(query_text, top_k, decay_lambda)
-        ]
+        return [_chunk_result_to_dict(r) for r in self._native.search_text(query_text, top_k, decay_lambda)]

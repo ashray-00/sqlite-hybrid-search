@@ -61,8 +61,7 @@ double CosineSimilarity(const std::vector<float>& a, const std::vector<float>& b
     return dot / (std::sqrt(norm_a) * std::sqrt(norm_b));
 }
 
-retrieval_engine::RetrievalEngine MakeEngineWithMockModel(const std::string& db_path,
-                                                          const std::string& model_path) {
+retrieval_engine::RetrievalEngine MakeEngineWithMockModel(const std::string& db_path, const std::string& model_path) {
     std::remove(db_path.c_str());
     WriteMockModel(model_path, kEmbeddingDim);
 
@@ -84,8 +83,7 @@ TEST(BuiltinEmbedder, EmbedProducesNonEmptyVectorOfExactModelDimension) {
     const std::vector<float> embedding = engine.embed("Hello world");
 
     ASSERT_EQ(embedding.size(), kEmbeddingDim);
-    const double magnitude = std::sqrt(std::inner_product(embedding.begin(), embedding.end(),
-                                                          embedding.begin(), 0.0));
+    const double magnitude = std::sqrt(std::inner_product(embedding.begin(), embedding.end(), embedding.begin(), 0.0));
     EXPECT_GT(magnitude, 0.0) << "embedding must not be the all-zeros vector";
 }
 
@@ -97,12 +95,9 @@ TEST(BuiltinEmbedder, AddTextAndSearchTextRoundTripWithoutCallerSuppliedVectors)
         MakeEngineWithMockModel("builtin_embedder_search_text.sqlite3", "builtin_embedder_mock_model.txt");
 
     engine.add_text({
-        retrieval_engine::TextDocumentInput{"install-guide",
-                                            "python package installation guide for beginners", "", 0},
-        retrieval_engine::TextDocumentInput{"weather-report",
-                                            "mountain weather forecast cold and snowy today", "", 0},
-        retrieval_engine::TextDocumentInput{"cooking-notes",
-                                            "recipe roasted vegetables garlic thyme dinner", "", 0},
+        retrieval_engine::TextDocumentInput{"install-guide", "python package installation guide for beginners", "", 0},
+        retrieval_engine::TextDocumentInput{"weather-report", "mountain weather forecast cold and snowy today", "", 0},
+        retrieval_engine::TextDocumentInput{"cooking-notes", "recipe roasted vegetables garlic thyme dinner", "", 0},
     });
     ASSERT_EQ(engine.chunk_count(), 3u);
 

@@ -26,3 +26,16 @@ RETRIEVAL_ENGINE_BUILD_PYTHON_BINDINGS = "ON"
 # resolve identically whether building via CMake directly or via `pip
 # install`.
 CMAKE_PREFIX_PATH = "/opt/homebrew"
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+extend-exclude = ["build", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = ["SIM117", "SIM905"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501"]
+"benchmarks/test_eval.py" = ["E501"]

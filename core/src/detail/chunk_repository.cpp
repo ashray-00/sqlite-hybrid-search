@@ -19,12 +19,12 @@ ChunkRepository::ChunkRepository(sqlite3* db, std::size_t dim) : db_(db), dimens
     // DenseIndex, and chunks_fts's rowid, keeping all three trivially
     // joinable/lookup-able by the same integer.
     ThrowIfSqliteError(sqlite3_exec(db_,
-                                     "CREATE TABLE IF NOT EXISTS documents ("
-                                     "  document_id TEXT PRIMARY KEY,"
-                                     "  metadata TEXT NOT NULL"
-                                     ");",
-                                     nullptr, nullptr, nullptr),
-                        db_, "ChunkRepository: failed to create documents table");
+                                    "CREATE TABLE IF NOT EXISTS documents ("
+                                    "  document_id TEXT PRIMARY KEY,"
+                                    "  metadata TEXT NOT NULL"
+                                    ");",
+                                    nullptr, nullptr, nullptr),
+                       db_, "ChunkRepository: failed to create documents table");
 
     // `created_at`/`last_accessed_at` are Unix epoch seconds (UTC --
     // std::time()-based, see time_util.hpp), for the agent memory layer's
@@ -35,21 +35,21 @@ ChunkRepository::ChunkRepository(sqlite3* db, std::size_t dim) : db_(db), dimens
     // only. Deliberately scoped this way: refreshing it on every search
     // would make search_memory() a non-idempotent "read" (two identical
     // calls could return different results), which needs its own explicit
-    // design, not a side effect of this stage. See docs/DECISIONS.md.
+    // design, not an implicit side effect of retrieval.
     ThrowIfSqliteError(sqlite3_exec(db_,
-                                     "CREATE TABLE IF NOT EXISTS chunks ("
-                                     "  chunk_id INTEGER PRIMARY KEY,"
-                                     "  document_id TEXT NOT NULL REFERENCES documents(document_id),"
-                                     "  chunk_index INTEGER NOT NULL,"
-                                     "  text TEXT NOT NULL,"
-                                     "  start_token INTEGER NOT NULL,"
-                                     "  end_token INTEGER NOT NULL,"
-                                     "  embedding BLOB NOT NULL,"
-                                     "  created_at INTEGER NOT NULL,"
-                                     "  last_accessed_at INTEGER NOT NULL"
-                                     ");",
-                                     nullptr, nullptr, nullptr),
-                        db_, "ChunkRepository: failed to create chunks table");
+                                    "CREATE TABLE IF NOT EXISTS chunks ("
+                                    "  chunk_id INTEGER PRIMARY KEY,"
+                                    "  document_id TEXT NOT NULL REFERENCES documents(document_id),"
+                                    "  chunk_index INTEGER NOT NULL,"
+                                    "  text TEXT NOT NULL,"
+                                    "  start_token INTEGER NOT NULL,"
+                                    "  end_token INTEGER NOT NULL,"
+                                    "  embedding BLOB NOT NULL,"
+                                    "  created_at INTEGER NOT NULL,"
+                                    "  last_accessed_at INTEGER NOT NULL"
+                                    ");",
+                                    nullptr, nullptr, nullptr),
+                       db_, "ChunkRepository: failed to create chunks table");
 
     // The sparse index. A plain (not "external content") FTS5 table,
     // populated explicitly with `rowid` set to the matching chunk_id -- see
@@ -57,11 +57,10 @@ ChunkRepository::ChunkRepository(sqlite3* db, std::size_t dim) : db_(db), dimens
     // recommended pattern for indexing an existing column without
     // duplicating it), because that mode requires triggers to stay in sync
     // across every write path, and add_documents() is currently the only
-    // one. Costs one extra copy of each chunk's text; simpler to reason
-    // about for now.
+    // one. Costs one extra copy of each chunk's text in exchange for not
+    // needing sync triggers.
     ThrowIfSqliteError(
-        sqlite3_exec(db_, "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text);", nullptr, nullptr,
-                     nullptr),
+        sqlite3_exec(db_, "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text);", nullptr, nullptr, nullptr),
         db_, "ChunkRepository: failed to create chunks_fts table");
 }
 
@@ -78,14 +77,14 @@ std::vector<std::pair<std::uint64_t, const std::vector<float>*>> ChunkRepository
     // chunks_fts -- all three are plain SQLite tables inside this one
     // transaction).
     ThrowIfSqliteError(sqlite3_exec(db_, "BEGIN;", nullptr, nullptr, nullptr), db_,
-                        "ChunkRepository::add_documents: failed to begin transaction");
+                       "ChunkRepository::add_documents: failed to begin transaction");
 
     try {
         SqliteStatement insert_document(db_, "INSERT INTO documents (document_id, metadata) VALUES (?, ?);");
         SqliteStatement insert_chunk(db_,
-                                      "INSERT INTO chunks (document_id, chunk_index, text, start_token, end_token, "
-                                      "embedding, created_at, last_accessed_at) "
-                                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?);");
+                                     "INSERT INTO chunks (document_id, chunk_index, text, start_token, end_token, "
+                                     "embedding, created_at, last_accessed_at) "
+                                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?);");
         SqliteStatement insert_chunk_fts(db_, "INSERT INTO chunks_fts(rowid, text) VALUES (?, ?);");
 
         for (const auto& document : documents) {
@@ -107,7 +106,7 @@ std::vector<std::pair<std::uint64_t, const std::vector<float>*>> ChunkRepository
     }
 
     ThrowIfSqliteError(sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr), db_,
-                        "ChunkRepository::add_documents: failed to commit transaction");
+                       "ChunkRepository::add_documents: failed to commit transaction");
 
     return pending_index_adds;
 }
@@ -118,12 +117,12 @@ void ChunkRepository::InsertDocumentRow(sqlite3_stmt* statement, const DocumentI
     sqlite3_bind_text(statement, 2, document.metadata.c_str(), -1, SQLITE_TRANSIENT);
     if (sqlite3_step(statement) != SQLITE_DONE) {
         throw std::runtime_error(std::string("ChunkRepository::add_documents: failed to insert document '") +
-                                  document.document_id + "': " + sqlite3_errmsg(db_));
+                                 document.document_id + "': " + sqlite3_errmsg(db_));
     }
 }
 
 std::uint64_t ChunkRepository::InsertChunkRow(sqlite3_stmt* statement, const std::string& document_id,
-                                               std::size_t chunk_index, const DocumentChunkInput& chunk) const {
+                                              std::size_t chunk_index, const DocumentChunkInput& chunk) const {
     sqlite3_reset(statement);
     sqlite3_bind_text(statement, 1, document_id.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(statement, 2, static_cast<sqlite3_int64>(chunk_index));
@@ -131,7 +130,7 @@ std::uint64_t ChunkRepository::InsertChunkRow(sqlite3_stmt* statement, const std
     sqlite3_bind_int64(statement, 4, static_cast<sqlite3_int64>(chunk.start_token));
     sqlite3_bind_int64(statement, 5, static_cast<sqlite3_int64>(chunk.end_token));
     sqlite3_bind_blob(statement, 6, chunk.embedding.data(), static_cast<int>(chunk.embedding.size() * sizeof(float)),
-                       SQLITE_TRANSIENT);
+                      SQLITE_TRANSIENT);
     // 0 is DocumentChunkInput::created_at_unix_seconds's sentinel for "use
     // the current time" -- a real timestamp is never legitimately exactly
     // the Unix epoch.
@@ -142,7 +141,7 @@ std::uint64_t ChunkRepository::InsertChunkRow(sqlite3_stmt* statement, const std
 
     if (sqlite3_step(statement) != SQLITE_DONE) {
         throw std::runtime_error(std::string("ChunkRepository::add_documents: failed to insert chunk: ") +
-                                  sqlite3_errmsg(db_));
+                                 sqlite3_errmsg(db_));
     }
 
     // The chunk's SQLite rowid *is* its usearch key: assigned by SQLite (not
@@ -153,13 +152,13 @@ std::uint64_t ChunkRepository::InsertChunkRow(sqlite3_stmt* statement, const std
 }
 
 void ChunkRepository::InsertChunkFtsRow(sqlite3_stmt* statement, std::uint64_t chunk_id,
-                                         const std::string& text) const {
+                                        const std::string& text) const {
     sqlite3_reset(statement);
     sqlite3_bind_int64(statement, 1, static_cast<sqlite3_int64>(chunk_id));
     sqlite3_bind_text(statement, 2, text.c_str(), -1, SQLITE_TRANSIENT);
     if (sqlite3_step(statement) != SQLITE_DONE) {
-        throw std::runtime_error(
-            std::string("ChunkRepository::add_documents: failed to insert into chunks_fts: ") + sqlite3_errmsg(db_));
+        throw std::runtime_error(std::string("ChunkRepository::add_documents: failed to insert into chunks_fts: ") +
+                                 sqlite3_errmsg(db_));
     }
 }
 
@@ -210,8 +209,8 @@ void ChunkRepository::ForEachChunk(
 
     if (step_rc != SQLITE_DONE) {
         throw std::runtime_error(std::string("ChunkRepository::ForEachChunk: failed while reading the chunks "
-                                              "table: ") +
-                                  sqlite3_errmsg(db_));
+                                             "table: ") +
+                                 sqlite3_errmsg(db_));
     }
 }
 
@@ -220,9 +219,9 @@ std::vector<ChunkSearchResult> ChunkRepository::SearchSparse(const std::string& 
     if (match_query.empty()) return {};  // no search terms -- nothing can match
 
     SqliteStatement statement(db_,
-                               "SELECT c.document_id, c.chunk_index, c.text, bm25(chunks_fts) "
-                               "FROM chunks_fts JOIN chunks c ON c.chunk_id = chunks_fts.rowid "
-                               "WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts) ASC LIMIT ?;");
+                              "SELECT c.document_id, c.chunk_index, c.text, bm25(chunks_fts) "
+                              "FROM chunks_fts JOIN chunks c ON c.chunk_id = chunks_fts.rowid "
+                              "WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts) ASC LIMIT ?;");
     sqlite3_bind_text(statement.get(), 1, match_query.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(statement.get(), 2, static_cast<sqlite3_int64>(k));
 
@@ -238,7 +237,7 @@ std::vector<ChunkSearchResult> ChunkRepository::SearchSparse(const std::string& 
     }
     if (step_rc != SQLITE_DONE) {
         throw std::runtime_error(std::string("ChunkRepository::SearchSparse: FTS5 query failed: ") +
-                                  sqlite3_errmsg(db_));
+                                 sqlite3_errmsg(db_));
     }
 
     return results;

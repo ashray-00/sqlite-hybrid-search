@@ -22,7 +22,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 import retrieval_engine
 
 _EMBEDDING_DIM = 384
@@ -120,12 +119,8 @@ def test_cli_routes_text_through_the_builtin_embedder(tmp_path):
 
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
-    (docs_dir / "install.txt").write_text(
-        "python package installation guide for beginners", encoding="utf-8"
-    )
-    (docs_dir / "weather.txt").write_text(
-        "mountain weather forecast cold and snowy today", encoding="utf-8"
-    )
+    (docs_dir / "install.txt").write_text("python package installation guide for beginners", encoding="utf-8")
+    (docs_dir / "weather.txt").write_text("mountain weather forecast cold and snowy today", encoding="utf-8")
 
     model_flags = ["--model", model_path, "--model-dim", str(_EMBEDDING_DIM)]
 
@@ -158,9 +153,7 @@ def test_load_embedding_model_with_missing_file_raises(tmp_path):
 def test_load_embedding_model_with_wrong_dimension_raises(tmp_path):
     # Mock model advertises a different dimension than the engine was built for.
     model_path = tmp_path / "wrong_dim_model.txt"
-    model_path.write_text(
-        f"RETRIEVAL_ENGINE_MOCK_EMBEDDING_MODEL v1\ndim={_EMBEDDING_DIM + 1}\n", encoding="utf-8"
-    )
+    model_path.write_text(f"RETRIEVAL_ENGINE_MOCK_EMBEDDING_MODEL v1\ndim={_EMBEDDING_DIM + 1}\n", encoding="utf-8")
     engine = retrieval_engine.Engine(str(tmp_path / "wrong_dim.sqlite3"), dim=_EMBEDDING_DIM)
 
     with pytest.raises(ValueError):
@@ -203,12 +196,8 @@ def test_onnx_backend_via_cli(tmp_path):
 
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
-    (docs_dir / "home.txt").write_text(
-        "I live in Berlin, the capital of Germany.", encoding="utf-8"
-    )
-    (docs_dir / "food.txt").write_text(
-        "This pasta recipe calls for garlic and olive oil.", encoding="utf-8"
-    )
+    (docs_dir / "home.txt").write_text("I live in Berlin, the capital of Germany.", encoding="utf-8")
+    (docs_dir / "food.txt").write_text("This pasta recipe calls for garlic and olive oil.", encoding="utf-8")
 
     flags = ["--model", model_path, "--model-dim", str(_MINILM_DIM)]
     ingest = subprocess.run(

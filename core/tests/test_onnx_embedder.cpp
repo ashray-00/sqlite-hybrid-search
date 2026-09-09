@@ -124,10 +124,8 @@ TEST_F(OnnxEmbedderTest, SearchTextRetrievesTheSemanticallyRelevantDocument) {
 
     engine.add_text({
         retrieval_engine::TextDocumentInput{"home", "I live in Berlin, the capital of Germany.", "", 0},
-        retrieval_engine::TextDocumentInput{"weather",
-                                            "Heavy rain is expected across the region tomorrow.", "", 0},
-        retrieval_engine::TextDocumentInput{"food",
-                                            "This pasta recipe calls for garlic and olive oil.", "", 0},
+        retrieval_engine::TextDocumentInput{"weather", "Heavy rain is expected across the region tomorrow.", "", 0},
+        retrieval_engine::TextDocumentInput{"food", "This pasta recipe calls for garlic and olive oil.", "", 0},
     });
     ASSERT_EQ(engine.chunk_count(), 3u);
 

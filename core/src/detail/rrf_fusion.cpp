@@ -11,7 +11,7 @@ constexpr double kRrfK = 60.0;
 }  // namespace
 
 std::vector<FusionEntry> RrfFuse(const std::vector<ChunkSearchResult>& dense_results,
-                                  const std::vector<ChunkSearchResult>& sparse_results, std::size_t k) {
+                                 const std::vector<ChunkSearchResult>& sparse_results, std::size_t k) {
     // Keyed by (document_id, chunk_index) -- unique within the chunks
     // schema (chunk_index is 0-based position within its document) -- so a
     // chunk hit by both rankings merges into one entry instead of two.

@@ -13,10 +13,7 @@ namespace retrieval_engine {
 
 // The private implementation (Pimpl idiom) -- keeps usearch/SQLite types out
 // of the public header. A thin composition of the one SQLite connection and
-// the ChunkStore built on top of it -- see core/src/detail/chunk_store.hpp
-// for its own docs, and docs/DECISIONS.md for the retired DummyVectorStore
-// that used to sit alongside it (early scaffolding, removed once the real
-// feature shipped and nothing else depended on it).
+// the ChunkStore built on top of it (see core/src/detail/chunk_store.hpp).
 //
 // The first three members are constructed via the initializer list, in
 // declaration order (connection, then the store that needs it already
@@ -43,8 +40,7 @@ struct RetrievalEngine::Impl {
     // error message is written once and is identical everywhere.
     const detail::TextEmbedder& require_embedder() const {
         if (!embedder) {
-            throw std::logic_error(
-                "RetrievalEngine: no embedding model attached -- call load_embedding_model() first");
+            throw std::logic_error("RetrievalEngine: no embedding model attached -- call load_embedding_model() first");
         }
         return *embedder;
     }
@@ -92,26 +88,26 @@ std::vector<ChunkSearchResult> RetrievalEngine::search_sparse(const std::string&
 }
 
 std::vector<ChunkSearchResult> RetrievalEngine::search_hybrid(const std::string& query_text,
-                                                               const std::vector<float>& query_vec,
-                                                               std::size_t k) const {
+                                                              const std::vector<float>& query_vec,
+                                                              std::size_t k) const {
     return impl_->chunk_store.search_hybrid(query_text, query_vec, k);
 }
 
 std::vector<SearchExplanation> RetrievalEngine::search_explained(const std::string& query_text,
-                                                                   const std::vector<float>& query_vec,
-                                                                   std::size_t k) const {
+                                                                 const std::vector<float>& query_vec,
+                                                                 std::size_t k) const {
     return impl_->chunk_store.search_explained(query_text, query_vec, k);
 }
 
 std::vector<ChunkSearchResult> RetrievalEngine::search_memory(const std::string& query_text,
-                                                               const std::vector<float>& query_vec, std::size_t k,
-                                                               float decay_lambda) const {
+                                                              const std::vector<float>& query_vec, std::size_t k,
+                                                              float decay_lambda) const {
     return impl_->chunk_store.search_memory(query_text, query_vec, k, decay_lambda);
 }
 
 std::vector<SearchExplanation> RetrievalEngine::search_memory_explained(const std::string& query_text,
-                                                                         const std::vector<float>& query_vec,
-                                                                         std::size_t k, float decay_lambda) const {
+                                                                        const std::vector<float>& query_vec,
+                                                                        std::size_t k, float decay_lambda) const {
     return impl_->chunk_store.search_memory_explained(query_text, query_vec, k, decay_lambda);
 }
 
@@ -157,7 +153,7 @@ void RetrievalEngine::add_text(const std::vector<TextDocumentInput>& documents) 
 }
 
 std::vector<ChunkSearchResult> RetrievalEngine::search_text(const std::string& query_text, std::size_t k,
-                                                             float decay_lambda) const {
+                                                            float decay_lambda) const {
     const std::vector<float> query_vec = impl_->require_embedder().embed(query_text);
     return impl_->chunk_store.search_memory(query_text, query_vec, k, decay_lambda);
 }

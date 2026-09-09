@@ -27,7 +27,7 @@ SqliteConnection::~SqliteConnection() {
 
 SqliteStatement::SqliteStatement(sqlite3* db, const char* sql) {
     ThrowIfSqliteError(sqlite3_prepare_v2(db, sql, -1, &statement_, nullptr), db,
-                        std::string("failed to prepare statement: ") + sql);
+                       std::string("failed to prepare statement: ") + sql);
 }
 
 SqliteStatement::~SqliteStatement() { sqlite3_finalize(statement_); }

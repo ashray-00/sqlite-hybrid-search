@@ -41,6 +41,6 @@ struct FusionEntry {
 // deterministic, reproducible output. Returns the top `k` entries ordered
 // highest-fused-score-first.
 std::vector<FusionEntry> RrfFuse(const std::vector<ChunkSearchResult>& dense_results,
-                                  const std::vector<ChunkSearchResult>& sparse_results, std::size_t k);
+                                 const std::vector<ChunkSearchResult>& sparse_results, std::size_t k);
 
 }  // namespace retrieval_engine::detail

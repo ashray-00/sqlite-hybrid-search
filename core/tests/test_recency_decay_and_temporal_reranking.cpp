@@ -38,16 +38,21 @@ void AddTwoChunkCorpus(retrieval_engine::RetrievalEngine& engine) {
     retrieval_engine::DocumentInput old_document;
     old_document.document_id = "old";
     old_document.metadata = "";
-    old_document.chunks.push_back(retrieval_engine::DocumentChunkInput{
-        "an old memory", {1.0f, 0.0f, 0.0f, 0.0f}, /*start_token=*/0, /*end_token=*/3,
-        /*created_at_unix_seconds=*/now - kOldAgeSeconds});
+    old_document.chunks.push_back(
+        retrieval_engine::DocumentChunkInput{"an old memory",
+                                             {1.0f, 0.0f, 0.0f, 0.0f},
+                                             /*start_token=*/0,
+                                             /*end_token=*/3,
+                                             /*created_at_unix_seconds=*/now - kOldAgeSeconds});
 
     retrieval_engine::DocumentInput recent_document;
     recent_document.document_id = "recent";
     recent_document.metadata = "";
-    recent_document.chunks.push_back(retrieval_engine::DocumentChunkInput{
-        "a recent memory", {0.999f, 0.001f, 0.0f, 0.0f}, /*start_token=*/0, /*end_token=*/3,
-        /*created_at_unix_seconds=*/now});
+    recent_document.chunks.push_back(retrieval_engine::DocumentChunkInput{"a recent memory",
+                                                                          {0.999f, 0.001f, 0.0f, 0.0f},
+                                                                          /*start_token=*/0,
+                                                                          /*end_token=*/3,
+                                                                          /*created_at_unix_seconds=*/now});
 
     engine.add_documents({old_document, recent_document});
 }
@@ -69,10 +74,9 @@ TEST(RetrievalEngineMemorySearch, RecencyFactorAndDecayedScoreMatchTheExponentia
     ASSERT_EQ(explanations.size(), 2u);
 
     const auto find = [&](const std::string& document_id) {
-        const auto it = std::find_if(explanations.begin(), explanations.end(),
-                                      [&](const retrieval_engine::SearchExplanation& e) {
-                                          return e.document_id == document_id;
-                                      });
+        const auto it =
+            std::find_if(explanations.begin(), explanations.end(),
+                         [&](const retrieval_engine::SearchExplanation& e) { return e.document_id == document_id; });
         return *it;
     };
 
@@ -92,8 +96,8 @@ TEST(RetrievalEngineMemorySearch, RecencyFactorAndDecayedScoreMatchTheExponentia
     // decreased".
     EXPECT_NEAR(old_explanation.age_seconds, static_cast<double>(kOldAgeSeconds), 2.0);
     constexpr double kSecondsPerDay = 86400.0;
-    const double expected_old_recency_factor = std::exp(
-        -static_cast<double>(kDecayLambda) * (static_cast<double>(kOldAgeSeconds) / kSecondsPerDay));
+    const double expected_old_recency_factor =
+        std::exp(-static_cast<double>(kDecayLambda) * (static_cast<double>(kOldAgeSeconds) / kSecondsPerDay));
     EXPECT_NEAR(old_explanation.recency_factor, expected_old_recency_factor, 1e-6);
     EXPECT_NEAR(static_cast<double>(old_explanation.decayed_score),
                 static_cast<double>(old_explanation.fused_score) * expected_old_recency_factor, 1e-6);
@@ -143,9 +147,12 @@ TEST(RetrievalEngineMemorySearch, FutureCreatedAtNeverInflatesTheRecencyFactorAb
     retrieval_engine::DocumentInput future_document;
     future_document.document_id = "from_the_future";
     future_document.metadata = "";
-    future_document.chunks.push_back(retrieval_engine::DocumentChunkInput{
-        "a memory with a clock-skewed timestamp", {1.0f, 0.0f, 0.0f, 0.0f}, /*start_token=*/0, /*end_token=*/6,
-        /*created_at_unix_seconds=*/ten_days_in_the_future});
+    future_document.chunks.push_back(
+        retrieval_engine::DocumentChunkInput{"a memory with a clock-skewed timestamp",
+                                             {1.0f, 0.0f, 0.0f, 0.0f},
+                                             /*start_token=*/0,
+                                             /*end_token=*/6,
+                                             /*created_at_unix_seconds=*/ten_days_in_the_future});
     engine.add_documents({future_document});
 
     const std::vector<retrieval_engine::SearchExplanation> explanations =
@@ -174,9 +181,12 @@ TEST(RetrievalEngineMemorySearch, VeryOldMemoryWithAggressiveDecayFloorsRatherTh
     retrieval_engine::DocumentInput ancient_document;
     ancient_document.document_id = "ancient";
     ancient_document.metadata = "";
-    ancient_document.chunks.push_back(retrieval_engine::DocumentChunkInput{
-        "a very old critical memory", {1.0f, 0.0f, 0.0f, 0.0f}, /*start_token=*/0, /*end_token=*/5,
-        /*created_at_unix_seconds=*/Now() - kOneYearInSeconds});
+    ancient_document.chunks.push_back(
+        retrieval_engine::DocumentChunkInput{"a very old critical memory",
+                                             {1.0f, 0.0f, 0.0f, 0.0f},
+                                             /*start_token=*/0,
+                                             /*end_token=*/5,
+                                             /*created_at_unix_seconds=*/Now() - kOneYearInSeconds});
     engine.add_documents({ancient_document});
 
     // decay_lambda=10 over a year of age would drive an unclamped
