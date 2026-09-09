@@ -51,6 +51,10 @@ def _explanation_to_dict(explanation: "_ext.SearchExplanation") -> dict[str, Any
         "sparse_rank": explanation.sparse_rank,
         "fused_score": explanation.fused_score,
         "final_rank": explanation.final_rank,
+        "created_at_unix_seconds": explanation.created_at_unix_seconds,
+        "age_seconds": explanation.age_seconds,
+        "recency_factor": explanation.recency_factor,
+        "decayed_score": explanation.decayed_score,
     }
 
 
@@ -111,6 +115,32 @@ class Engine:
     def search_explained(self, query_text: str, query_vec: list[float], top_k: int) -> list[dict[str, Any]]:
         """Hybrid search with the full score breakdown -- see RetrievalEngine::search_explained()."""
         return [_explanation_to_dict(e) for e in self._native.search_explained(query_text, query_vec, top_k)]
+
+    def search_memory(
+        self, query_text: str, query_vec: list[float], top_k: int, decay_lambda: float
+    ) -> list[dict[str, Any]]:
+        """The agent memory layer: search_hybrid()'s fused score, discounted
+        by exponential recency decay and re-ranked by the result -- see
+        RetrievalEngine::search_memory()'s doc comment for the formula.
+        `decay_lambda=0` disables decay entirely (identical ranking to
+        search_hybrid()).
+        """
+        return [
+            _chunk_result_to_dict(r) for r in self._native.search_memory(query_text, query_vec, top_k, decay_lambda)
+        ]
+
+    def search_memory_explained(
+        self, query_text: str, query_vec: list[float], top_k: int, decay_lambda: float
+    ) -> list[dict[str, Any]]:
+        """Like search_memory(), but with the full score breakdown (as
+        search_explained(), plus created_at_unix_seconds, age_seconds,
+        recency_factor, decayed_score) -- see
+        RetrievalEngine::search_memory_explained()'s doc comment.
+        """
+        return [
+            _explanation_to_dict(e)
+            for e in self._native.search_memory_explained(query_text, query_vec, top_k, decay_lambda)
+        ]
 
     def chunk_count(self) -> int:
         """Number of chunks currently indexed."""

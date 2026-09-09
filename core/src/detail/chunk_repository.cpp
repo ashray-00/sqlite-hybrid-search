@@ -2,6 +2,7 @@
 
 #include "fts5_query.hpp"
 #include "sqlite_util.hpp"
+#include "time_util.hpp"
 
 #include <sqlite3.h>
 
@@ -25,6 +26,16 @@ ChunkRepository::ChunkRepository(sqlite3* db, std::size_t dim) : db_(db), dimens
                                      nullptr, nullptr, nullptr),
                         db_, "ChunkRepository: failed to create documents table");
 
+    // `created_at`/`last_accessed_at` are Unix epoch seconds (UTC --
+    // std::time()-based, see time_util.hpp), for the agent memory layer's
+    // recency decay (RetrievalEngine::search_memory()). `last_accessed_at`
+    // is initialized to `created_at` at insertion and stored for future use
+    // (e.g. access-pattern-aware forgetting policies) but is not currently
+    // refreshed on retrieval -- search_memory() decays against `created_at`
+    // only. Deliberately scoped this way: refreshing it on every search
+    // would make search_memory() a non-idempotent "read" (two identical
+    // calls could return different results), which needs its own explicit
+    // design, not a side effect of this stage. See docs/DECISIONS.md.
     ThrowIfSqliteError(sqlite3_exec(db_,
                                      "CREATE TABLE IF NOT EXISTS chunks ("
                                      "  chunk_id INTEGER PRIMARY KEY,"
@@ -33,7 +44,9 @@ ChunkRepository::ChunkRepository(sqlite3* db, std::size_t dim) : db_(db), dimens
                                      "  text TEXT NOT NULL,"
                                      "  start_token INTEGER NOT NULL,"
                                      "  end_token INTEGER NOT NULL,"
-                                     "  embedding BLOB NOT NULL"
+                                     "  embedding BLOB NOT NULL,"
+                                     "  created_at INTEGER NOT NULL,"
+                                     "  last_accessed_at INTEGER NOT NULL"
                                      ");",
                                      nullptr, nullptr, nullptr),
                         db_, "ChunkRepository: failed to create chunks table");
@@ -69,10 +82,10 @@ std::vector<std::pair<std::uint64_t, const std::vector<float>*>> ChunkRepository
 
     try {
         SqliteStatement insert_document(db_, "INSERT INTO documents (document_id, metadata) VALUES (?, ?);");
-        SqliteStatement insert_chunk(
-            db_,
-            "INSERT INTO chunks (document_id, chunk_index, text, start_token, end_token, embedding) "
-            "VALUES (?, ?, ?, ?, ?, ?);");
+        SqliteStatement insert_chunk(db_,
+                                      "INSERT INTO chunks (document_id, chunk_index, text, start_token, end_token, "
+                                      "embedding, created_at, last_accessed_at) "
+                                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?);");
         SqliteStatement insert_chunk_fts(db_, "INSERT INTO chunks_fts(rowid, text) VALUES (?, ?);");
 
         for (const auto& document : documents) {
@@ -95,6 +108,13 @@ std::vector<std::pair<std::uint64_t, const std::vector<float>*>> ChunkRepository
                 sqlite3_bind_int64(insert_chunk.get(), 5, static_cast<sqlite3_int64>(chunk.end_token));
                 sqlite3_bind_blob(insert_chunk.get(), 6, chunk.embedding.data(),
                                    static_cast<int>(chunk.embedding.size() * sizeof(float)), SQLITE_TRANSIENT);
+                // 0 is DocumentChunkInput::created_at_unix_seconds's sentinel
+                // for "use the current time" -- a real timestamp is never
+                // legitimately exactly the Unix epoch.
+                const std::int64_t created_at =
+                    chunk.created_at_unix_seconds != 0 ? chunk.created_at_unix_seconds : CurrentUnixTimeSeconds();
+                sqlite3_bind_int64(insert_chunk.get(), 7, static_cast<sqlite3_int64>(created_at));
+                sqlite3_bind_int64(insert_chunk.get(), 8, static_cast<sqlite3_int64>(created_at));
 
                 if (sqlite3_step(insert_chunk.get()) != SQLITE_DONE) {
                     throw std::runtime_error(
@@ -210,6 +230,18 @@ std::vector<ChunkSearchResult> ChunkRepository::SearchSparse(const std::string& 
     }
 
     return results;
+}
+
+std::int64_t ChunkRepository::GetCreatedAt(const std::string& document_id, std::size_t chunk_index) const {
+    SqliteStatement statement(db_, "SELECT created_at FROM chunks WHERE document_id = ? AND chunk_index = ?;");
+    sqlite3_bind_text(statement.get(), 1, document_id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(statement.get(), 2, static_cast<sqlite3_int64>(chunk_index));
+
+    if (sqlite3_step(statement.get()) != SQLITE_ROW) {
+        throw std::runtime_error("ChunkRepository::GetCreatedAt: no chunk row for this (document_id, chunk_index)");
+    }
+
+    return static_cast<std::int64_t>(sqlite3_column_int64(statement.get(), 0));
 }
 
 }  // namespace retrieval_engine::detail

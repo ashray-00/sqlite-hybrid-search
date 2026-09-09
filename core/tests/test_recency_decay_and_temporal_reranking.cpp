@@ -1,17 +1,10 @@
 // Agent memory: exponential recency decay + temporal reranking.
-//
-// Tests two not-yet-implemented methods on RetrievalEngine:
-// search_memory() and search_memory_explained(), declared in
-// retrieval_engine.hpp but with NO implementation anywhere yet. Calling
-// them is expected to make the build FAIL with an undefined-symbol
-// (linker) error -- that is the correct, expected result for this pass.
-// Do not "fix" it by adding an implementation; that is Phase 2 (GREEN).
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <ctime>
 #include <string>
 #include <vector>
@@ -31,7 +24,13 @@ std::int64_t Now() { return static_cast<std::int64_t>(std::time(nullptr)); }
 // below ("unrelated"), so search_sparse() contributes nothing to either --
 // the fused score is dense-only, making "old"'s raw-similarity edge exact
 // and easy to reason about by hand.
-constexpr std::int64_t kOldAgeSeconds = 20;
+//
+// The decay formula normalizes age to days (age_seconds / 86400), so a
+// meaningful demonstration needs a day-scale gap, not a few seconds: one
+// simulated day (86400 seconds) with decay_lambda=0.1 gives
+// e^(-0.1*1) = e^-0.1 ~= 0.905, comfortably enough to flip the ranking
+// against "old"'s small raw-similarity edge (worked out by hand below).
+constexpr std::int64_t kOldAgeSeconds = 86400;
 
 void AddTwoChunkCorpus(retrieval_engine::RetrievalEngine& engine) {
     const std::int64_t now = Now();
@@ -63,10 +62,10 @@ TEST(RetrievalEngineMemorySearch, RecencyFactorAndDecayedScoreMatchTheExponentia
     AddTwoChunkCorpus(engine);
 
     const std::vector<float> query_vec = {1.0f, 0.0f, 0.0f, 0.0f};
-    constexpr float kRecencyWeight = 0.1f;
+    constexpr float kDecayLambda = 0.1f;
 
     const std::vector<retrieval_engine::SearchExplanation> explanations =
-        engine.search_memory_explained("unrelated", query_vec, /*k=*/2, kRecencyWeight);
+        engine.search_memory_explained("unrelated", query_vec, /*k=*/2, kDecayLambda);
     ASSERT_EQ(explanations.size(), 2u);
 
     const auto find = [&](const std::string& document_id) {
@@ -89,10 +88,12 @@ TEST(RetrievalEngineMemorySearch, RecencyFactorAndDecayedScoreMatchTheExponentia
     EXPECT_NEAR(recent_explanation.recency_factor, 1.0, 0.01);
 
     // "old" is kOldAgeSeconds in the past -- verify the *exact* formula
-    // (score = base_score * e^(-lambda * age)), not just "it decreased".
+    // (decayed_score = base_score * e^(-lambda * age_days)), not just "it
+    // decreased".
     EXPECT_NEAR(old_explanation.age_seconds, static_cast<double>(kOldAgeSeconds), 2.0);
-    const double expected_old_recency_factor =
-        std::exp(-static_cast<double>(kRecencyWeight) * static_cast<double>(kOldAgeSeconds));
+    constexpr double kSecondsPerDay = 86400.0;
+    const double expected_old_recency_factor = std::exp(
+        -static_cast<double>(kDecayLambda) * (static_cast<double>(kOldAgeSeconds) / kSecondsPerDay));
     EXPECT_NEAR(old_explanation.recency_factor, expected_old_recency_factor, 1e-6);
     EXPECT_NEAR(static_cast<double>(old_explanation.decayed_score),
                 static_cast<double>(old_explanation.fused_score) * expected_old_recency_factor, 1e-6);
@@ -111,18 +112,82 @@ TEST(RetrievalEngineMemorySearch, SearchMemoryRanksRecentDocumentAboveSlightlyMo
 
     const std::vector<float> query_vec = {1.0f, 0.0f, 0.0f, 0.0f};
 
-    // recency_weight = 0 disables decay entirely: raw similarity wins,
-    // "old" ranks first (same ranking search_hybrid() would give).
+    // decay_lambda = 0 disables decay entirely: raw similarity wins, "old"
+    // ranks first (same ranking search_hybrid() would give).
     const std::vector<retrieval_engine::ChunkSearchResult> undecayed =
-        engine.search_memory("unrelated", query_vec, /*k=*/2, /*recency_weight=*/0.0f);
+        engine.search_memory("unrelated", query_vec, /*k=*/2, /*decay_lambda=*/0.0f);
     ASSERT_EQ(undecayed.size(), 2u);
     EXPECT_EQ(undecayed.front().document_id, "old");
 
-    // With a non-zero recency_weight, the fresher document overtakes it --
+    // With a non-zero decay_lambda, the fresher document overtakes it --
     // this is the temporal reranker actually reordering results, not just
     // adjusting scores in place.
     const std::vector<retrieval_engine::ChunkSearchResult> decayed =
-        engine.search_memory("unrelated", query_vec, /*k=*/2, /*recency_weight=*/0.1f);
+        engine.search_memory("unrelated", query_vec, /*k=*/2, /*decay_lambda=*/0.1f);
     ASSERT_EQ(decayed.size(), 2u);
     EXPECT_EQ(decayed.front().document_id, "recent");
+}
+
+// Independent review regression: a clock that stepped backwards (or a
+// caller-supplied created_at that turns out to be in the future) produces a
+// negative age_seconds. Left unguarded, e^(-lambda * negative) > 1 would let
+// "decay" actually *inflate* a score above its undecayed value -- verify
+// that can never happen.
+TEST(RetrievalEngineMemorySearch, FutureCreatedAtNeverInflatesTheRecencyFactorAboveOne) {
+    const std::string db_path = "memory_test_future_timestamp.sqlite3";
+    std::remove(db_path.c_str());
+
+    retrieval_engine::RetrievalEngine engine(db_path, kDim);
+
+    const std::int64_t ten_days_in_the_future = Now() + 10 * kOldAgeSeconds;
+    retrieval_engine::DocumentInput future_document;
+    future_document.document_id = "from_the_future";
+    future_document.metadata = "";
+    future_document.chunks.push_back(retrieval_engine::DocumentChunkInput{
+        "a memory with a clock-skewed timestamp", {1.0f, 0.0f, 0.0f, 0.0f}, /*start_token=*/0, /*end_token=*/6,
+        /*created_at_unix_seconds=*/ten_days_in_the_future});
+    engine.add_documents({future_document});
+
+    const std::vector<retrieval_engine::SearchExplanation> explanations =
+        engine.search_memory_explained("unrelated", {1.0f, 0.0f, 0.0f, 0.0f}, /*k=*/1, /*decay_lambda=*/0.5f);
+    ASSERT_EQ(explanations.size(), 1u);
+
+    // The raw age is still reported honestly (negative, for debugging/
+    // transparency)...
+    EXPECT_LT(explanations.front().age_seconds, 0.0);
+    // ...but the decay math itself must clamp it: no boost above 1.0, and
+    // therefore no decayed_score above the undecayed fused_score.
+    EXPECT_LE(explanations.front().recency_factor, 1.0);
+    EXPECT_LE(explanations.front().decayed_score, explanations.front().fused_score);
+}
+
+// Independent review regression: an old memory decayed with a large
+// decay_lambda must be heavily discounted, but never scored as if it did
+// not exist at all -- the recency factor has a floor.
+TEST(RetrievalEngineMemorySearch, VeryOldMemoryWithAggressiveDecayFloorsRatherThanZeroingOut) {
+    const std::string db_path = "memory_test_floor.sqlite3";
+    std::remove(db_path.c_str());
+
+    retrieval_engine::RetrievalEngine engine(db_path, kDim);
+
+    constexpr std::int64_t kOneYearInSeconds = 365 * kOldAgeSeconds;
+    retrieval_engine::DocumentInput ancient_document;
+    ancient_document.document_id = "ancient";
+    ancient_document.metadata = "";
+    ancient_document.chunks.push_back(retrieval_engine::DocumentChunkInput{
+        "a very old critical memory", {1.0f, 0.0f, 0.0f, 0.0f}, /*start_token=*/0, /*end_token=*/5,
+        /*created_at_unix_seconds=*/Now() - kOneYearInSeconds});
+    engine.add_documents({ancient_document});
+
+    // decay_lambda=10 over a year of age would drive an unclamped
+    // e^(-10 * 365) to a value indistinguishable from 0 in double precision
+    // -- exactly the "critical memory zeroed out" failure mode the floor
+    // exists to prevent.
+    const std::vector<retrieval_engine::SearchExplanation> explanations =
+        engine.search_memory_explained("unrelated", {1.0f, 0.0f, 0.0f, 0.0f}, /*k=*/1, /*decay_lambda=*/10.0f);
+    ASSERT_EQ(explanations.size(), 1u);
+
+    EXPECT_GE(explanations.front().recency_factor, 0.01);
+    EXPECT_TRUE(std::isfinite(explanations.front().recency_factor));
+    EXPECT_TRUE(std::isfinite(explanations.front().decayed_score));
 }

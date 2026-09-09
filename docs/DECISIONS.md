@@ -71,6 +71,114 @@ Corrected to call `engine.search_memory(...)` directly with no exception
 guard, letting the `AttributeError` propagate and fail the test, matching
 the established pattern exactly (`pytest` exits non-zero, `2 failed`).
 
+### Correction between RED and GREEN: day-normalized formula, not raw-seconds
+
+The RED test (and the note above) assumed
+`decayed_score = fused_score * exp(-lambda * age_seconds)` (no day
+normalization). The GREEN task's literal formula is
+`Recency_Factor(age_seconds) = exp(-decay_lambda * age_seconds / 86400)`
+(`age_seconds` normalized to days), so `decay_lambda` values like 0.05-0.5
+correspond to meaningful day-scale half-lives rather than needing
+vanishingly small lambdas. Caught before writing any GREEN code (worked out
+by hand: `age=86400s` (1 day), `decay_lambda=0.1` still cleanly flips the
+test corpus's ranking -- `exp(-0.1*1) ~= 0.905`, `old_decayed ~= 0.0148 <
+recent_fused ~= 0.0161`). Updated the RED test's simulated age from 20
+seconds to 86400 seconds (1 day) and its formula assertions to match before
+implementing the GREEN pass, and renamed `recency_weight` to `decay_lambda`
+throughout (both the C++ API and the Python wrapper) to match the GREEN
+task's literal terminology.
+
+### GREEN implementation
+
+- **Schema**: `chunks` table gained `created_at INTEGER NOT NULL` and
+  `last_accessed_at INTEGER NOT NULL` columns. `add_documents()` populates
+  both from `DocumentChunkInput::created_at_unix_seconds` (or wall-clock
+  "now" when left at its `0` sentinel). `last_accessed_at` is initialized
+  equal to `created_at` but deliberately **not** refreshed on retrieval in
+  this pass -- doing so would make `search_memory()`, a read, silently
+  mutate stored state, which is out of this stage's scope
+  (BUILD_PLAN.md's forgetting/access-pattern policy is future work).
+- **`ChunkRepository::GetCreatedAt(document_id, chunk_index)`**: a new
+  lookup method, added because `FusionEntry` (the RRF pipeline's internal
+  currency) only carries `document_id`+`chunk_index`, not the raw SQLite
+  `chunk_id` -- threading `chunk_id` through the whole dense/sparse/RRF
+  pipeline just for this lookup would have been far more invasive than one
+  targeted query.
+- **`detail::ComputeRecencyFactor(age_seconds, decay_lambda)`**
+  (`recency_decay.hpp/.cpp`): a new pure-math module (no SQLite/usearch
+  dependency), mirroring `rrf_fusion.hpp/.cpp`'s and `fts5_query.hpp/.cpp`'s
+  existing "pure function, independently reasoned about" pattern.
+- **`ChunkStore::FuseRankAndDecay()`**: a private helper that runs the
+  existing dense+sparse+RRF fusion, looks up each result's `created_at`,
+  computes its recency factor and decayed score, and re-sorts by decayed
+  score (ties broken by document_id/chunk_index for determinism) -- shared
+  by both `search_memory()` and `search_memory_explained()` so the
+  fetch/decay/re-sort logic exists exactly once, matching the existing
+  `FuseAndRank()` helper's role for the non-memory search path.
+- **Bindings/Python/CLI**: `search_memory`/`search_memory_explained` exposed
+  through nanobind with the same `gil_scoped_release` guard as every other
+  potentially-slow native method; `Engine.search_memory()` /
+  `search_memory_explained()` added to the Python wrapper;
+  `cli.py`'s `query` command now always calls `search_memory()` (a
+  `--decay 0` default is mathematically a no-op, `exp(0) == 1`, so this is
+  behavior-identical to the old `search_hybrid()` call when `--decay` is
+  omitted) with a new `--decay` flag.
+
+### Independent review (Phase 3): 3 CONFIRMED findings in `ComputeRecencyFactor`, all fixed
+
+Reviewed with "assume at least one mistake exists" against the review's own
+stated focus areas. The naive GREEN implementation
+(`return std::exp(-decay_lambda * age_seconds / 86400.0);`) had no guards
+at all -- three real issues found:
+
+1. **No negative-age clamp (clock skew / future timestamps).** A clock that
+   steps backwards, or a caller-supplied `created_at_unix_seconds` in the
+   future, produces `age_seconds < 0`; unclamped, `exp(-lambda * negative)
+   > 1`, so "decay" could *inflate* `decayed_score` above the undecayed
+   `fused_score` -- the opposite of what a decay factor should ever do.
+   Fixed by clamping the age used **inside the exponent** to `>= 0` via
+   `std::max(age_seconds, 0.0)`. The raw (unclamped, possibly negative) age
+   is still reported honestly in `SearchExplanation::age_seconds` for
+   debugging/transparency -- only the decay math's own internal copy is
+   clamped.
+2. **No floor on the recency factor.** An old memory combined with a large
+   `decay_lambda` decays towards double-precision zero (e.g. one year old
+   with `decay_lambda=10`), which would zero out a memory's score
+   regardless of how strong its raw similarity/BM25 match was -- exactly
+   the "older critical memories completely zeroed out" failure the review
+   task named explicitly. Fixed with a floor at `kMinRecencyFactor = 0.01`
+   (a named constant in `recency_decay.hpp`, not a magic number), via
+   `std::clamp(factor, kMinRecencyFactor, 1.0)`.
+3. **No NaN/Inf guard.** A pathological `decay_lambda` (e.g. negative --
+   easy to pass by mistake, since nothing in the type system stops it)
+   combined with a large age can drive `std::exp()` to `+Inf`; `std::clamp`
+   with a NaN/Inf argument has behavior the standard leaves unclamped or
+   unspecified in the NaN case, so this had to be checked with
+   `std::isfinite()` *before* clamping, not folded into the clamp call
+   itself. Fixed by returning `kMinRecencyFactor` directly whenever the raw
+   `exp()` result isn't finite.
+
+**Timezone/clock consistency** (the review's fourth named focus area) was
+verified rather than found broken: `detail::CurrentUnixTimeSeconds()` uses
+`std::time()`, which already returns UTC epoch seconds regardless of the
+system's local timezone setting -- there is no local/UTC ambiguity to
+introduce here, unlike `std::localtime()`/`std::mktime()` (deliberately
+never used anywhere in this codebase).
+
+Two regression tests added directly to
+`test_recency_decay_and_temporal_reranking.cpp`
+(`FutureCreatedAtNeverInflatesTheRecencyFactorAboveOne`,
+`VeryOldMemoryWithAggressiveDecayFloorsRatherThanZeroingOut`), exercised
+through the public `search_memory_explained()` API rather than by reaching
+into `recency_decay.hpp` directly -- consistent with how `rrf_fusion.*` and
+`fts5_query.*`'s pure math is already tested only through the public engine
+API elsewhere in this test suite, not via dedicated unit tests against the
+internal header.
+
+Full suite after the fix: 19/19 `ctest` (17 pre-existing + 2 new regression
+tests), 8/8 `pytest`, zero compiler warnings under
+`-Wall -Wextra -Wpedantic`.
+
 ## Cross-cutting cleanup: removed "Stage N" naming and comments from code (user-requested)
 
 **What happened:** the user pointed out that files and identifiers were

@@ -32,7 +32,8 @@ NB_MODULE(_retrieval_engine_ext, m) {
         .def_rw("text", &DocumentChunkInput::text)
         .def_rw("embedding", &DocumentChunkInput::embedding)
         .def_rw("start_token", &DocumentChunkInput::start_token)
-        .def_rw("end_token", &DocumentChunkInput::end_token);
+        .def_rw("end_token", &DocumentChunkInput::end_token)
+        .def_rw("created_at_unix_seconds", &DocumentChunkInput::created_at_unix_seconds);
 
     nb::class_<DocumentInput>(m, "DocumentInput")
         .def(nb::init<>())
@@ -63,7 +64,11 @@ NB_MODULE(_retrieval_engine_ext, m) {
         .def_ro("sparse_bm25_score", &SearchExplanation::sparse_bm25_score)
         .def_ro("sparse_rank", &SearchExplanation::sparse_rank)
         .def_ro("fused_score", &SearchExplanation::fused_score)
-        .def_ro("final_rank", &SearchExplanation::final_rank);
+        .def_ro("final_rank", &SearchExplanation::final_rank)
+        .def_ro("created_at_unix_seconds", &SearchExplanation::created_at_unix_seconds)
+        .def_ro("age_seconds", &SearchExplanation::age_seconds)
+        .def_ro("recency_factor", &SearchExplanation::recency_factor)
+        .def_ro("decayed_score", &SearchExplanation::decayed_score);
 
     // Exposed as "NativeEngine", not "Engine": the public, documented
     // Python-facing class is retrieval_engine.Engine (a pure-Python wrapper
@@ -87,5 +92,10 @@ NB_MODULE(_retrieval_engine_ext, m) {
         .def("search_hybrid", &RetrievalEngine::search_hybrid, nb::arg("query_text"), nb::arg("query_vec"),
              nb::arg("k"), nb::call_guard<nb::gil_scoped_release>())
         .def("search_explained", &RetrievalEngine::search_explained, nb::arg("query_text"), nb::arg("query_vec"),
-             nb::arg("k"), nb::call_guard<nb::gil_scoped_release>());
+             nb::arg("k"), nb::call_guard<nb::gil_scoped_release>())
+        .def("search_memory", &RetrievalEngine::search_memory, nb::arg("query_text"), nb::arg("query_vec"),
+             nb::arg("k"), nb::arg("decay_lambda"), nb::call_guard<nb::gil_scoped_release>())
+        .def("search_memory_explained", &RetrievalEngine::search_memory_explained, nb::arg("query_text"),
+             nb::arg("query_vec"), nb::arg("k"), nb::arg("decay_lambda"),
+             nb::call_guard<nb::gil_scoped_release>());
 }

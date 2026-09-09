@@ -70,6 +70,13 @@ public:
     // Throws std::runtime_error on a SQLite failure.
     std::vector<ChunkSearchResult> SearchSparse(const std::string& query_text, std::size_t k) const;
 
+    // Looks up a chunk's stored `created_at` (Unix epoch seconds) by
+    // (document_id, chunk_index) -- the same identity key used throughout
+    // the RRF fusion pipeline (see rrf_fusion.hpp), for the agent memory
+    // layer's recency decay (RetrievalEngine::search_memory()). Throws
+    // std::runtime_error if no such chunk exists.
+    std::int64_t GetCreatedAt(const std::string& document_id, std::size_t chunk_index) const;
+
 private:
     sqlite3* db_;
     std::size_t dimensions_;

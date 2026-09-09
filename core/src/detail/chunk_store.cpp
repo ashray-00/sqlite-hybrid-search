@@ -1,7 +1,10 @@
 #include "chunk_store.hpp"
 
+#include "recency_decay.hpp"
 #include "rrf_fusion.hpp"
+#include "time_util.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
 
@@ -100,6 +103,82 @@ std::vector<SearchExplanation> ChunkStore::search_explained(const std::string& q
         explanation.sparse_rank = entry.sparse_rank;
         explanation.fused_score = entry.fused_score;
         explanation.final_rank = i + 1;  // 1-based
+        explanations.push_back(std::move(explanation));
+    }
+    return explanations;
+}
+
+std::vector<ChunkStore::DecayedEntry> ChunkStore::FuseRankAndDecay(const std::string& query_text,
+                                                                    const std::vector<float>& query_vec,
+                                                                    std::size_t k, float decay_lambda) const {
+    std::vector<FusionEntry> fused = RrfFuse(search_dense(query_vec, k), search_sparse(query_text, k), k);
+    const std::int64_t now = CurrentUnixTimeSeconds();
+
+    std::vector<DecayedEntry> decayed_entries;
+    decayed_entries.reserve(fused.size());
+    for (FusionEntry& entry : fused) {
+        const std::int64_t created_at = repository_.GetCreatedAt(entry.document_id, entry.chunk_index);
+        const double age_seconds = static_cast<double>(now - created_at);
+        const double recency_factor = ComputeRecencyFactor(age_seconds, static_cast<double>(decay_lambda));
+        const float decayed_score = entry.fused_score * static_cast<float>(recency_factor);
+        decayed_entries.push_back(
+            DecayedEntry{std::move(entry), created_at, age_seconds, recency_factor, decayed_score});
+    }
+
+    // Re-rank by decayed_score: this is the "temporal reranker" -- decay
+    // isn't just a cosmetic score adjustment, it can (and is meant to)
+    // change which chunks land in the final top-k and in what order. Same
+    // deterministic tie-break as RrfFuse (by document_id, then
+    // chunk_index), for the same explainability reason.
+    std::sort(decayed_entries.begin(), decayed_entries.end(), [](const DecayedEntry& a, const DecayedEntry& b) {
+        if (a.decayed_score != b.decayed_score) return a.decayed_score > b.decayed_score;
+        if (a.entry.document_id != b.entry.document_id) return a.entry.document_id < b.entry.document_id;
+        return a.entry.chunk_index < b.entry.chunk_index;
+    });
+
+    return decayed_entries;
+}
+
+std::vector<ChunkSearchResult> ChunkStore::search_memory(const std::string& query_text,
+                                                          const std::vector<float>& query_vec, std::size_t k,
+                                                          float decay_lambda) const {
+    const std::vector<DecayedEntry> decayed = FuseRankAndDecay(query_text, query_vec, k, decay_lambda);
+
+    std::vector<ChunkSearchResult> results;
+    results.reserve(decayed.size());
+    for (const DecayedEntry& decayed_entry : decayed) {
+        results.push_back(ChunkSearchResult{decayed_entry.entry.document_id, decayed_entry.entry.chunk_index,
+                                             decayed_entry.entry.text, decayed_entry.decayed_score});
+    }
+    return results;
+}
+
+std::vector<SearchExplanation> ChunkStore::search_memory_explained(const std::string& query_text,
+                                                                    const std::vector<float>& query_vec,
+                                                                    std::size_t k, float decay_lambda) const {
+    const std::vector<DecayedEntry> decayed = FuseRankAndDecay(query_text, query_vec, k, decay_lambda);
+
+    std::vector<SearchExplanation> explanations;
+    explanations.reserve(decayed.size());
+    for (std::size_t i = 0; i < decayed.size(); ++i) {
+        const DecayedEntry& decayed_entry = decayed[i];
+        const FusionEntry& entry = decayed_entry.entry;
+        SearchExplanation explanation;
+        explanation.document_id = entry.document_id;
+        explanation.chunk_index = entry.chunk_index;
+        explanation.text = entry.text;
+        explanation.dense_present = entry.dense_present;
+        explanation.dense_distance = entry.dense_distance;
+        explanation.dense_rank = entry.dense_rank;
+        explanation.sparse_present = entry.sparse_present;
+        explanation.sparse_bm25_score = entry.sparse_bm25_score;
+        explanation.sparse_rank = entry.sparse_rank;
+        explanation.fused_score = entry.fused_score;
+        explanation.final_rank = i + 1;  // 1-based, over the *decayed* order
+        explanation.created_at_unix_seconds = decayed_entry.created_at_unix_seconds;
+        explanation.age_seconds = decayed_entry.age_seconds;
+        explanation.recency_factor = decayed_entry.recency_factor;
+        explanation.decayed_score = decayed_entry.decayed_score;
         explanations.push_back(std::move(explanation));
     }
     return explanations;

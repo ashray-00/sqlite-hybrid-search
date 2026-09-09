@@ -61,4 +61,16 @@ std::vector<SearchExplanation> RetrievalEngine::search_explained(const std::stri
     return impl_->chunk_store.search_explained(query_text, query_vec, k);
 }
 
+std::vector<ChunkSearchResult> RetrievalEngine::search_memory(const std::string& query_text,
+                                                               const std::vector<float>& query_vec, std::size_t k,
+                                                               float decay_lambda) const {
+    return impl_->chunk_store.search_memory(query_text, query_vec, k, decay_lambda);
+}
+
+std::vector<SearchExplanation> RetrievalEngine::search_memory_explained(const std::string& query_text,
+                                                                         const std::vector<float>& query_vec,
+                                                                         std::size_t k, float decay_lambda) const {
+    return impl_->chunk_store.search_memory_explained(query_text, query_vec, k, decay_lambda);
+}
+
 }  // namespace retrieval_engine

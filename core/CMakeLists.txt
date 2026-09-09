@@ -12,7 +12,9 @@
 #   detail/dense_index.*      storage-agnostic usearch wrapper
 #   detail/fts5_query.*       pure FTS5 MATCH-string sanitization
 #   detail/rrf_fusion.*       pure Reciprocal Rank Fusion math
+#   detail/recency_decay.*    pure exponential recency-decay math
 #   detail/sqlite_util.*      generic SQLite RAII helpers, shared throughout
+#   detail/time_util.hpp      "current time" helper (header-only), likewise
 #   detail/usearch_util.hpp   usearch capacity helper (header-only), likewise
 # (Earlier scaffolding, detail/dummy_vector_store.*, was removed once the
 # real feature shipped and nothing else depended on it -- see
@@ -23,6 +25,7 @@ add_library(retrieval_engine_core
     src/detail/chunk_store.cpp
     src/detail/dense_index.cpp
     src/detail/fts5_query.cpp
+    src/detail/recency_decay.cpp
     src/detail/rrf_fusion.cpp
     src/detail/sqlite_util.cpp
     src/retrieval_engine.cpp
