@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <numeric>
 #include <stdexcept>
@@ -189,6 +190,52 @@ TEST(BuiltinEmbedder, LoadEmbeddingModelWithDimensionMismatchThrowsInvalidArgume
 
     EXPECT_THROW(engine.load_embedding_model(model_path), std::invalid_argument);
     EXPECT_FALSE(engine.has_embedding_model());
+}
+
+// A ".onnx" model needs its vocab.txt beside it. Whether or not this build
+// has the ONNX backend, pointing the loader at an .onnx file with no usable
+// vocab is a std::runtime_error (never a crash, never silent).
+TEST(BuiltinEmbedder, LoadOnnxModelWithoutAUsableSiblingVocabThrowsRuntimeError) {
+    namespace fs = std::filesystem;
+    const fs::path dir = "builtin_embedder_onnx_no_vocab_dir";
+    fs::remove_all(dir);
+    fs::create_directory(dir);
+    {
+        std::ofstream model(dir / "model.onnx", std::ios::binary | std::ios::trunc);
+        model << "this is not a real ONNX protobuf";
+    }
+
+    std::remove("builtin_embedder_onnx_no_vocab.sqlite3");
+    retrieval_engine::RetrievalEngine engine("builtin_embedder_onnx_no_vocab.sqlite3", kEmbeddingDim);
+
+    EXPECT_THROW(engine.load_embedding_model((dir / "model.onnx").string()), std::runtime_error);
+    EXPECT_FALSE(engine.has_embedding_model());
+
+    fs::remove_all(dir);
+}
+
+// A corrupt .onnx file (vocab present) is likewise a clean std::runtime_error.
+TEST(BuiltinEmbedder, LoadCorruptOnnxModelThrowsRuntimeError) {
+    namespace fs = std::filesystem;
+    const fs::path dir = "builtin_embedder_onnx_corrupt_dir";
+    fs::remove_all(dir);
+    fs::create_directory(dir);
+    {
+        std::ofstream model(dir / "model.onnx", std::ios::binary | std::ios::trunc);
+        model << std::string("\x00\x01\x02 definitely not protobuf", 27);
+    }
+    {
+        std::ofstream vocab(dir / "vocab.txt", std::ios::binary | std::ios::trunc);
+        vocab << "[PAD]\n[UNK]\n[CLS]\n[SEP]\nhello\nworld\n";
+    }
+
+    std::remove("builtin_embedder_onnx_corrupt.sqlite3");
+    retrieval_engine::RetrievalEngine engine("builtin_embedder_onnx_corrupt.sqlite3", kEmbeddingDim);
+
+    EXPECT_THROW(engine.load_embedding_model((dir / "model.onnx").string()), std::runtime_error);
+    EXPECT_FALSE(engine.has_embedding_model());
+
+    fs::remove_all(dir);
 }
 
 // A failed re-load must not detach the model that was already working.

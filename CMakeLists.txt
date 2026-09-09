@@ -64,6 +64,38 @@ add_library(usearch INTERFACE)
 add_library(usearch::usearch ALIAS usearch)
 target_include_directories(usearch SYSTEM INTERFACE "${usearch_SOURCE_DIR}/include")
 
+# --- ONNX Runtime (built-in embedding backend) ---------------------------
+# The real embed()/add_text()/search_text() backend runs a local ONNX
+# sentence-embedding model (all-MiniLM-L6-v2 by default). ONNX Runtime is
+# NOT header-only and NOT fetchable -- it must be installed
+# (`brew install onnxruntime` on this macOS/ARM64 setup). The option
+# defaults ON but degrades gracefully: if the library isn't found the
+# engine still builds with only the dependency-free mock backend, and any
+# attempt to load a .onnx model reports that clearly at runtime.
+option(RETRIEVAL_ENGINE_WITH_ONNX "Build the ONNX Runtime embedding backend" ON)
+
+if(RETRIEVAL_ENGINE_WITH_ONNX)
+    find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
+        PATHS /opt/homebrew/include /opt/homebrew/include/onnxruntime /usr/local/include
+              /usr/local/include/onnxruntime /usr/include /usr/include/onnxruntime)
+    find_library(ONNXRUNTIME_LIBRARY NAMES onnxruntime
+        PATHS /opt/homebrew/lib /usr/local/lib /usr/lib)
+
+    if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIBRARY)
+        add_library(onnxruntime::onnxruntime UNKNOWN IMPORTED)
+        set_target_properties(onnxruntime::onnxruntime PROPERTIES
+            IMPORTED_LOCATION "${ONNXRUNTIME_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_INCLUDE_DIR}")
+        message(STATUS "ONNX Runtime embedding backend: ON (${ONNXRUNTIME_LIBRARY})")
+    else()
+        message(WARNING
+            "ONNX Runtime not found (looked for onnxruntime_cxx_api.h and libonnxruntime); "
+            "building with the mock embedding backend only. Install it "
+            "(`brew install onnxruntime`) and reconfigure to enable the real backend.")
+        set(RETRIEVAL_ENGINE_WITH_ONNX OFF)
+    endif()
+endif()
+
 # --- GoogleTest (test framework) -------------------------------------------
 if(RETRIEVAL_ENGINE_BUILD_TESTS)
     FetchContent_Declare(

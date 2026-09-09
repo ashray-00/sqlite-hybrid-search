@@ -17,6 +17,8 @@
 #                              for the built-in embed()/add_text()/
 #                              search_text() path)
 #   detail/mock_text_embedder.* deterministic hashing-trick TextEmbedder
+#   detail/wordpiece_tokenizer.* BERT WordPiece tokenizer (ONNX build only)
+#   detail/onnx_text_embedder.*  ONNX Runtime TextEmbedder (ONNX build only)
 #   detail/embedding_model_loader.* sniffs a model file -> a TextEmbedder
 #   detail/sqlite_util.*      generic SQLite RAII helpers, shared throughout
 #   detail/time_util.hpp      "current time" helper (header-only), likewise
@@ -49,6 +51,19 @@ target_link_libraries(retrieval_engine_core PUBLIC
 )
 
 target_compile_features(retrieval_engine_core PUBLIC cxx_std_17)
+
+# The ONNX Runtime embedding backend is compiled in only when the library
+# was found (see the top-level CMakeLists.txt). RETRIEVAL_ENGINE_WITH_ONNX
+# is PUBLIC so both this library's own translation units and the test
+# targets can guard ONNX-only code on it.
+if(RETRIEVAL_ENGINE_WITH_ONNX)
+    target_sources(retrieval_engine_core PRIVATE
+        src/detail/onnx_text_embedder.cpp
+        src/detail/wordpiece_tokenizer.cpp
+    )
+    target_link_libraries(retrieval_engine_core PRIVATE onnxruntime::onnxruntime)
+    target_compile_definitions(retrieval_engine_core PUBLIC RETRIEVAL_ENGINE_WITH_ONNX)
+endif()
 
 if(RETRIEVAL_ENGINE_BUILD_TESTS)
     add_subdirectory(tests)

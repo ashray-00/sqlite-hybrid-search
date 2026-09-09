@@ -36,6 +36,20 @@ _EMBEDDING_DIM = 384
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _ENGINE_CLI = _REPO_ROOT / ".venv" / "bin" / "engine"
 
+_MINILM_DIM = 384
+
+
+def _onnx_model_path() -> Path:
+    """Where the real all-MiniLM-L6-v2 ONNX model is expected. The 90 MB
+    file is not vendored, so the ONNX tests skip when it is absent.
+    """
+    import os
+
+    from_env = os.environ.get("RETRIEVAL_ENGINE_TEST_ONNX_MODEL")
+    if from_env:
+        return Path(from_env)
+    return Path.home() / ".cache" / "retrieval-engine" / "all-MiniLM-L6-v2" / "model.onnx"
+
 
 def _write_mock_model(path) -> str:
     """Writes the mock embedding-model file (see module docstring / DECISIONS.md).
@@ -158,6 +172,67 @@ def test_load_embedding_model_with_wrong_dimension_raises(tmp_path):
     with pytest.raises(ValueError):
         engine.load_embedding_model(str(model_path))
     assert not engine.has_embedding_model()
+
+
+def _require_onnx_model():
+    model = _onnx_model_path()
+    if not model.exists():
+        pytest.skip(f"all-MiniLM-L6-v2 ONNX model not found at {model}")
+    return str(model)
+
+
+def test_onnx_backend_embeds_and_retrieves_by_meaning(tmp_path):
+    model_path = _require_onnx_model()
+    engine = retrieval_engine.Engine(str(tmp_path / "onnx.sqlite3"), dim=_MINILM_DIM)
+    engine.load_embedding_model(model_path)
+    assert engine.has_embedding_model()
+    assert engine.embedding_dim() == _MINILM_DIM
+
+    vector = engine.embed("Where do I live?")
+    assert len(vector) == _MINILM_DIM
+    assert _cosine(vector, vector) == pytest.approx(1.0, abs=1e-5)  # unit length
+
+    engine.add_text(
+        [
+            {"id": "home", "text": "I live in Berlin, the capital of Germany."},
+            {"id": "weather", "text": "Heavy rain is expected across the region tomorrow."},
+            {"id": "food", "text": "This pasta recipe calls for garlic and olive oil."},
+        ]
+    )
+    results = engine.search_text("Which city is my house located in?", top_k=1)
+    assert results
+    assert results[0]["document_id"] == "home"
+
+
+def test_onnx_backend_via_cli(tmp_path):
+    model_path = _require_onnx_model()
+
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "home.txt").write_text(
+        "I live in Berlin, the capital of Germany.", encoding="utf-8"
+    )
+    (docs_dir / "food.txt").write_text(
+        "This pasta recipe calls for garlic and olive oil.", encoding="utf-8"
+    )
+
+    flags = ["--model", model_path, "--model-dim", str(_MINILM_DIM)]
+    ingest = subprocess.run(
+        [str(_ENGINE_CLI), "ingest", str(docs_dir), *flags],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+    assert ingest.returncode == 0, f"ingest failed: {ingest.stderr}"
+
+    query = subprocess.run(
+        [str(_ENGINE_CLI), "query", "which city is my house in?", *flags],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+    assert query.returncode == 0, f"query failed: {query.stderr}"
+    assert "home.txt" in query.stdout
 
 
 def test_cli_model_flag_requires_model_dim(tmp_path):

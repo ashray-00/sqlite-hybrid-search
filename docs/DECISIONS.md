@@ -970,3 +970,90 @@ Minor (not actioned): `Engine.embed()` wraps nanobind's already-a-list
 result in `list()` (harmless, matches the codebase's defensive-copy
 style); `CountWhitespaceTokens` restates chunk_text's token definition (one
 small function; a shared util would be scope creep).
+
+## Built-in local embedding inference -- Pass B: real ONNX Runtime backend
+
+### Dependencies installed / downloaded this pass
+
+- `brew install onnxruntime` (1.29.0; pulled abseil, protobuf, onnx, re2).
+  Ships a CMake config and `libonnxruntime.dylib` under
+  /opt/homebrew/Cellar/onnxruntime, headers at /opt/homebrew/include.
+- all-MiniLM-L6-v2 downloaded (once) to
+  `~/.cache/retrieval-engine/all-MiniLM-L6-v2/`: `model.onnx` (~90 MB, from
+  the repo's `onnx/model.onnx`) and `vocab.txt` (30522 WordPiece tokens).
+  Not vendored into the repo -- the ONNX tests skip when it is absent.
+
+Model I/O (verified): inputs `input_ids`, `attention_mask`,
+`token_type_ids` (all int64, [batch, seq]); output `last_hidden_state`
+(float32, [batch, seq, 384]).
+
+### Decision: hand-written WordPiece tokenizer, not a vendored library
+
+Homebrew has no `tokenizers-cpp` / `sentencepiece`, and the HF
+`tokenizers-cpp` crate would pull a Rust toolchain. `detail/wordpiece_tokenizer.*`
+is a compact (~230 line) BERT-uncased WordPiece implementation: basic
+tokenization (ASCII whitespace + punctuation splitting, CJK codepoints
+isolated via a tiny inline UTF-8 decoder, ASCII lowercasing) then greedy
+longest-match WordPiece with `##` continuation, wrapped in [CLS] ... [SEP],
+truncated at 256 tokens (sentence-transformers' default for this model).
+Documented limitations, acceptable for the engine's English-first v1 scope:
+no Unicode accent stripping (null for all-MiniLM-L6-v2 anyway) and no
+Unicode-category punctuation. Immutable after construction -> `encode()` is
+safe for concurrent use.
+
+### Decision: OnnxTextEmbedder behind the existing TextEmbedder interface
+
+`detail/onnx_text_embedder.*` implements `TextEmbedder` exactly as
+`MockTextEmbedder` does -- no change to RetrievalEngine, the loader's
+return type, or any caller. Pipeline: WordPiece encode -> `Ort::Session::Run`
+-> attention-mask-weighted mean pooling over the token axis -> L2-normalize.
+Mean pooling (not CLS pooling) matches sentence-transformers' own pooling
+for these models, so vectors are comparable to a reference Python
+implementation; the semantic-similarity tests (paraphrase cosine > 0.5,
+clearly above unrelated) confirm the pipeline reproduces the reference
+behavior.
+
+- Weights + session created once in the constructor, stored in
+  `RetrievalEngine::Impl`'s `unique_ptr`, reused for every call -- never
+  reloaded per query. A `load_embedding_model()` re-call builds the new
+  session into a local first, so a failed reload keeps the working model.
+- `session_` is `mutable` only because `Ort::Session::Run` is non-const;
+  ONNX Runtime documents concurrent `Run()` on one session as safe, and
+  `embed()` keeps every buffer local, so concurrent `embed()` is
+  race-free. (Minor, not actioned: each embedder creates its own
+  `Ort::Env`; ORT tolerates this but a process-global env would suppress
+  its "second env" warning. Engines are effectively singletons in
+  practice.)
+
+### Decision: format dispatch by extension; graceful degradation without ORT
+
+`LoadTextEmbedder` dispatches on a `.onnx` suffix *before* reading file
+content (so a 90 MB protobuf is never slurped into a string looking for a
+text header); the mock header path is unchanged. `RETRIEVAL_ENGINE_WITH_ONNX`
+(top-level CMake option, default ON) auto-flips OFF with a warning if
+`libonnxruntime` / `onnxruntime_cxx_api.h` are not found -- the engine then
+builds with only the mock backend, and loading a `.onnx` model returns a
+clear runtime error. Verified both ways: 35 C++ tests with ONNX ON
+(4 exercise the real model), 31 with ONNX OFF (1 ONNX test skipped).
+`gtest_discover_tests` gained `DISCOVERY_TIMEOUT 60` after the first build
+hit macOS's one-time Gatekeeper scan of the newly installed dylib inside
+the default 5 s discovery window.
+
+### Independent review -- findings and resolution
+
+- **Memory efficiency (OK):** one session load per `load_embedding_model`,
+  reused for all queries; reload is safe-swap.
+- **Thread safety (OK):** concurrent `embed()` is race-free -- ORT
+  concurrent `Run()` is supported, tokenizer + cached IO-name tables are
+  immutable, all per-call buffers are local.
+- **Model-path resolution (IMPORTANT finding -- fixed):** the `.onnx`
+  branch handled missing file / missing sibling `vocab.txt` / corrupt
+  model / dimension mismatch, but only the first was tested. Added
+  `LoadOnnxModelWithoutAUsableSiblingVocabThrowsRuntimeError`,
+  `LoadCorruptOnnxModelThrowsRuntimeError` (both robust to ONNX ON *and*
+  OFF -- the "no backend" path throws the same `std::runtime_error`), and
+  `OnnxEmbedderTest.DimensionMismatchBetweenModelAndEngineThrowsInvalidArgument`
+  (real model, engine built for dim 128).
+
+Stage 5 DONE: 35 C++ tests (ctest) + 18 Python tests (pytest) green with
+the ONNX backend; mock-only build stays green too.
