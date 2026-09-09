@@ -23,7 +23,7 @@
 #   detail/sqlite_util.*      generic SQLite RAII helpers, shared throughout
 #   detail/time_util.hpp      "current time" helper (header-only), likewise
 #   detail/usearch_util.hpp   usearch capacity helper (header-only), likewise
-add_library(retrieval_engine_core
+add_library(sqlite_hybrid_search_core
     src/chunking.cpp
     src/detail/chunk_repository.cpp
     src/detail/chunk_store.cpp
@@ -36,30 +36,30 @@ add_library(retrieval_engine_core
     src/detail/sqlite_util.cpp
     src/retrieval_engine.cpp
 )
-add_library(retrieval_engine::core ALIAS retrieval_engine_core)
+add_library(sqlite_hybrid_search::core ALIAS sqlite_hybrid_search_core)
 
-target_include_directories(retrieval_engine_core PUBLIC
+target_include_directories(sqlite_hybrid_search_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 
-target_link_libraries(retrieval_engine_core PUBLIC
+target_link_libraries(sqlite_hybrid_search_core PUBLIC
     usearch::usearch
     SQLite3::SQLite3
 )
 
-target_compile_features(retrieval_engine_core PUBLIC cxx_std_17)
+target_compile_features(sqlite_hybrid_search_core PUBLIC cxx_std_17)
 
 # The ONNX Runtime embedding backend is compiled in only when the library
 # was found (see the top-level CMakeLists.txt). RETRIEVAL_ENGINE_WITH_ONNX
 # is PUBLIC so both this library's own translation units and the test
 # targets can guard ONNX-only code on it.
 if(RETRIEVAL_ENGINE_WITH_ONNX)
-    target_sources(retrieval_engine_core PRIVATE
+    target_sources(sqlite_hybrid_search_core PRIVATE
         src/detail/onnx_text_embedder.cpp
         src/detail/wordpiece_tokenizer.cpp
     )
-    target_link_libraries(retrieval_engine_core PRIVATE onnxruntime::onnxruntime)
-    target_compile_definitions(retrieval_engine_core PUBLIC RETRIEVAL_ENGINE_WITH_ONNX)
+    target_link_libraries(sqlite_hybrid_search_core PRIVATE onnxruntime::onnxruntime)
+    target_compile_definitions(sqlite_hybrid_search_core PUBLIC RETRIEVAL_ENGINE_WITH_ONNX)
 endif()
 
 if(RETRIEVAL_ENGINE_BUILD_TESTS)

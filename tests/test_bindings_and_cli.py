@@ -1,11 +1,11 @@
 """Python bindings and CLI for the retrieval engine.
 
-  1. Bindings.* -- `import retrieval_engine`, the nanobind extension module
+  1. Bindings.* -- `import sqlite_hybrid_search`, the nanobind extension module
      (bindings/python_bindings.cpp) wrapping retrieval_engine::RetrievalEngine
      (core/include/retrieval_engine/retrieval_engine.hpp), via the pure-Python
-     Engine wrapper in python/retrieval_engine/__init__.py.
-  2. Cli.* -- the `engine` console-script CLI (`engine ingest`,
-     `engine query`), python/retrieval_engine/cli.py.
+     Engine wrapper in python/sqlite_hybrid_search/__init__.py.
+  2. Cli.* -- the `hybrid-search` console-script CLI (`hybrid-search ingest`,
+     `hybrid-search query`), python/sqlite_hybrid_search/cli.py.
 
 Python-facing Engine API this file specifies (see docs/dev-log.md for how
 it maps onto the C++ methods it wraps):
@@ -35,7 +35,7 @@ import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ENGINE_CLI = REPO_ROOT / ".venv" / "bin" / "engine"
+ENGINE_CLI = REPO_ROOT / ".venv" / "bin" / "hybrid-search"
 
 
 def _sample_documents_and_embeddings():
@@ -50,15 +50,15 @@ def _sample_documents_and_embeddings():
     return documents, embeddings
 
 
-def test_import_retrieval_engine_bindings():
-    import retrieval_engine  # noqa: F401 -- the import itself is the assertion
+def test_import_bindings():
+    import sqlite_hybrid_search  # noqa: F401 -- the import itself is the assertion
 
 
 def test_engine_add_and_search(tmp_path):
-    import retrieval_engine
+    import sqlite_hybrid_search
 
     db_path = str(tmp_path / "bindings_cli_test.sqlite3")
-    engine = retrieval_engine.Engine(db_path, 4)
+    engine = sqlite_hybrid_search.Engine(db_path, 4)
 
     documents, embeddings = _sample_documents_and_embeddings()
     engine.add(documents, embeddings)
@@ -71,10 +71,10 @@ def test_engine_add_and_search(tmp_path):
 
 
 def test_engine_search_hybrid_and_explained(tmp_path):
-    import retrieval_engine
+    import sqlite_hybrid_search
 
     db_path = str(tmp_path / "bindings_cli_test_hybrid.sqlite3")
-    engine = retrieval_engine.Engine(db_path, 4)
+    engine = sqlite_hybrid_search.Engine(db_path, 4)
 
     documents, embeddings = _sample_documents_and_embeddings()
     engine.add(documents, embeddings)

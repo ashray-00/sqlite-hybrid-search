@@ -2,8 +2,8 @@
 // their supporting structs. Deliberately kept close to the actual C++ API --
 // ergonomic adaptation for Python (dict-shaped documents, plain-dict
 // results) lives in the pure-Python Engine wrapper
-// (python/retrieval_engine/__init__.py), not here. This module is compiled
-// as `_retrieval_engine_ext` and imported only by that package, never
+// (python/sqlite_hybrid_search/__init__.py), not here. This module is compiled
+// as `_sqlite_hybrid_search_ext` and imported only by that package, never
 // directly by end users (see its own docstring for why).
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
@@ -15,8 +15,8 @@
 namespace nb = nanobind;
 using namespace retrieval_engine;
 
-NB_MODULE(_retrieval_engine_ext, m) {
-    m.doc() = "Internal nanobind extension for retrieval_engine -- import retrieval_engine instead.";
+NB_MODULE(_sqlite_hybrid_search_ext, m) {
+    m.doc() = "Internal nanobind extension for sqlite_hybrid_search -- import sqlite_hybrid_search instead.";
 
     nb::class_<Chunk>(m, "Chunk")
         .def_ro("text", &Chunk::text)
@@ -78,9 +78,9 @@ NB_MODULE(_retrieval_engine_ext, m) {
         .def_ro("decayed_score", &SearchExplanation::decayed_score);
 
     // Exposed as "NativeEngine", not "Engine": the public, documented
-    // Python-facing class is retrieval_engine.Engine (a pure-Python wrapper
+    // Python-facing class is sqlite_hybrid_search.Engine (a pure-Python wrapper
     // over this), with a friendlier ingestion shape -- see
-    // python/retrieval_engine/__init__.py and docs/dev-log.md.
+    // python/sqlite_hybrid_search/__init__.py and docs/dev-log.md.
     nb::class_<RetrievalEngine>(m, "NativeEngine")
         // Opening an existing database loads the dense index from the
         // "<db_path>.usearch" sidecar, or rebuilds it from every persisted

@@ -17,12 +17,12 @@ execute_process(
 )
 find_package(nanobind CONFIG REQUIRED)
 
-nanobind_add_module(_retrieval_engine_ext NB_STATIC python_bindings.cpp)
-target_link_libraries(_retrieval_engine_ext PRIVATE retrieval_engine::core)
+nanobind_add_module(_sqlite_hybrid_search_ext NB_STATIC python_bindings.cpp)
+target_link_libraries(_sqlite_hybrid_search_ext PRIVATE sqlite_hybrid_search::core)
 
 # Installed alongside the pure-Python package (see pyproject.toml's
 # tool.scikit-build.wheel.packages) so that, once installed,
-# `retrieval_engine/_retrieval_engine_ext*` sits next to
-# `retrieval_engine/__init__.py` and `from ._retrieval_engine_ext import ...`
+# `sqlite_hybrid_search/_sqlite_hybrid_search_ext*` sits next to
+# `sqlite_hybrid_search/__init__.py` and `from ._sqlite_hybrid_search_ext import ...`
 # resolves as a sibling submodule.
-install(TARGETS _retrieval_engine_ext LIBRARY DESTINATION retrieval_engine)
+install(TARGETS _sqlite_hybrid_search_ext LIBRARY DESTINATION sqlite_hybrid_search)

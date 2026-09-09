@@ -10,7 +10,7 @@ measures retrieval quality (Recall@10, nDCG@10, MRR@10), warm-cache latency
 (p50/p95/p99, mean, throughput), cold-cache first-query latency, and the
 process memory / on-disk footprint.
 
-Ingestion goes through the native _retrieval_engine_ext types rather than
+Ingestion goes through the native _sqlite_hybrid_search_ext types rather than
 the friendly Engine.add() wrapper because the decay approach needs per-chunk
 timestamps, which the wrapper does not expose (see docs/dev-log.md).
 """
@@ -24,10 +24,10 @@ import sys
 import time
 from typing import Callable
 
-import retrieval_engine  # noqa: F401  -- ensures the extension is importable
+import sqlite_hybrid_search  # noqa: F401  -- ensures the extension is importable
 from corpus import LabeledCorpus, build_corpus
 from metrics import mrr_at_k, ndcg_at_k, recall_at_k
-from retrieval_engine import _retrieval_engine_ext as _ext
+from sqlite_hybrid_search import _sqlite_hybrid_search_ext as _ext
 
 APPROACHES = ("dense", "sparse", "hybrid", "hybrid_decay")
 K = 10

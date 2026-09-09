@@ -247,9 +247,9 @@ BM25) rather than requiring every term.
 is verbose for the common "here are some docs and their vectors" case. A
 hand-written binding that also reshapes the API mixes two jobs in C++.
 
-**Decision.** Two layers. `_retrieval_engine_ext` (nanobind, in
+**Decision.** Two layers. `_sqlite_hybrid_search_ext` (nanobind, in
 `bindings/`) mirrors the C++ types and methods closely and is exposed as
-`NativeEngine`. The public `retrieval_engine.Engine` is pure Python: it
+`NativeEngine`. The public `sqlite_hybrid_search.Engine` is pure Python: it
 adapts dict-shaped documents and parallel embedding lists onto the native
 structs, and returns dict-shaped results. Every potentially slow native
 method releases the GIL.

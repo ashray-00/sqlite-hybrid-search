@@ -1,4 +1,4 @@
-# retrieval-engine
+# sqlite-hybrid-search
 
 **Ultra-fast, in-process hybrid search & agent memory engine in C++17 with Python bindings.**
 
@@ -35,8 +35,8 @@ CMake ≥ 3.24, Python ≥ 3.9 with `venv`, and SQLite (with FTS5 — the defaul
 mainstream builds). `usearch` and GoogleTest are fetched automatically.
 
 ```console
-git clone https://github.com/<owner>/retrieval-engine   # your fork/repo URL
-cd retrieval-engine
+git clone https://github.com/<owner>/sqlite-hybrid-search   # your fork/repo URL
+cd sqlite-hybrid-search
 python3 -m venv .venv && .venv/bin/pip install -e .
 ```
 
@@ -68,9 +68,9 @@ builds and every caller-supplied-vector path works unchanged; only
 ## Quickstart (Python)
 
 ```python
-import retrieval_engine
+import sqlite_hybrid_search
 
-engine = retrieval_engine.Engine("memory.sqlite3", dim=3)
+engine = sqlite_hybrid_search.Engine("memory.sqlite3", dim=3)
 
 # Ingest documents with caller-supplied embeddings (one vector per document).
 engine.add(
@@ -94,24 +94,24 @@ print(trail["dense_rank"], trail["sparse_rank"], trail["fused_score"], trail["re
 ```
 
 Per-chunk timestamps (so recency decay can actually reorder results) are set
-through the native `retrieval_engine._retrieval_engine_ext` types — see
+through the native `sqlite_hybrid_search._sqlite_hybrid_search_ext` types — see
 `tests/test_memory_search.py`.
 
 ## Quickstart (CLI)
 
-The `engine` console script chunks a folder of `.txt` files into an index in the
+The `hybrid-search` console script chunks a folder of `.txt` files into an index in the
 current directory. It uses a deterministic hashing stand-in for embeddings unless
 you pass `--model` / `--model-dim`.
 
 ```console
-$ engine ingest ./docs
-Ingested 2 document(s), 2 chunk(s), into /path/to/cwd/.retrieval_engine.sqlite3
+$ hybrid-search ingest ./docs
+Ingested 2 document(s), 2 chunk(s), into /path/to/cwd/.hybrid_search.sqlite3
 
-$ engine query "where do I live" --decay 0.1
+$ hybrid-search query "where do I live" --decay 0.1
 1. [notes.txt] (score=0.0328) I live in Munich. My office is near the river.
 2. [work.txt] (score=0.0161) The quarterly report is due on Friday.
 
-$ engine query "where do I live" --decay 0.1 --explain    # full score trail
+$ hybrid-search query "where do I live" --decay 0.1 --explain    # full score trail
 ```
 
 ---
@@ -180,7 +180,7 @@ Python-driven figure is the benchmark driver holding the corpus, not the engine.
 
 ## Comparison
 
-| | **retrieval-engine** | sqlite-vec + glue | ChromaDB | Qdrant / Milvus / Weaviate |
+| | **sqlite-hybrid-search** | sqlite-vec + glue | ChromaDB | Qdrant / Milvus / Weaviate |
 |---|---|---|---|---|
 | Deployment | in-process library, 1 file | in-process (SQLite ext) | embedded lib **or** server | separate server / cluster |
 | Process to run | none | none | none (embedded) / one (server) | one+ |
@@ -202,16 +202,18 @@ documents.
 ## C++ integration
 
 The public header exposes no usearch or SQLite types (Pimpl idiom); the only
-hard dependency is SQLite (usearch is fetched by CMake).
+hard dependency is SQLite (usearch is fetched by CMake). The C++ symbols live
+in the `retrieval_engine` namespace (header path `retrieval_engine/`) — an
+internal name kept stable across the Python-package rename.
 
 ```cmake
 include(FetchContent)
-FetchContent_Declare(retrieval_engine
-    GIT_REPOSITORY https://github.com/<owner>/retrieval-engine
+FetchContent_Declare(sqlite_hybrid_search
+    GIT_REPOSITORY https://github.com/<owner>/sqlite-hybrid-search
     GIT_TAG main)
-FetchContent_MakeAvailable(retrieval_engine)
+FetchContent_MakeAvailable(sqlite_hybrid_search)
 
-target_link_libraries(your_target PRIVATE retrieval_engine::core)
+target_link_libraries(your_target PRIVATE sqlite_hybrid_search::core)
 ```
 
 ```cpp
@@ -238,7 +240,7 @@ externally (one instance per thread, each with its own SQLite connection).
 ```
 core/        C++17 engine (chunking, dense index, FTS5, RRF fusion, recency decay)
 bindings/    nanobind extension module
-python/      retrieval_engine package (friendly wrapper + `engine` CLI)
+python/      sqlite_hybrid_search package (friendly wrapper + `hybrid-search` CLI)
 benchmarks/  reproducible recall / latency / memory harness
 docs/        architecture decision records + development log
 ```

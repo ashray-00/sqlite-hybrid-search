@@ -1,0 +1,84 @@
+name: Release
+
+# Builds platform wheels + an sdist and, on a published GitHub Release,
+# uploads them to PyPI via Trusted Publishing (OIDC -- no API token).
+#
+# PyPI setup (one time): project -> Publishing -> add a pending publisher
+#   Owner:            <your-github-user-or-org>
+#   Repository:       sqlite-hybrid-search
+#   Workflow name:    release.yml
+#   Environment name: pypi
+# Then create the `pypi` environment under repo Settings -> Environments.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: {}   # manual runs build artifacts but do not publish
+
+permissions:
+  contents: read
+
+jobs:
+  wheels:
+    name: wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-13, macos-14]   # x86_64 Linux, Intel + Apple-Silicon macOS
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.21.3   # bump to the latest tag periodically
+        env:
+          # cp39..cp313, 64-bit only; skip PyPy and musl for a first release.
+          CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
+          CIBW_SKIP: "*-musllinux_* *_i686 *-win32 pp*"
+          CIBW_ARCHS_MACOS: "auto"        # native arch per runner (x86_64 on macos-13, arm64 on macos-14)
+          # The built-in ONNX Runtime backend is a source-build opt-in; PyPI
+          # wheels ship the dependency-free mock backend only.
+          CIBW_ENVIRONMENT: 'CMAKE_ARGS="-DRETRIEVAL_ENGINE_WITH_ONNX=OFF"'
+          CIBW_BEFORE_ALL_LINUX: "yum install -y sqlite-devel || dnf install -y sqlite-devel"
+          CIBW_BEFORE_ALL_MACOS: "brew install sqlite"
+          # Smoke-test every wheel after auditwheel/delocate repairs it.
+          CIBW_TEST_COMMAND: >-
+            python -c "import sqlite_hybrid_search, tempfile, os;
+            e = sqlite_hybrid_search.Engine(os.path.join(tempfile.mkdtemp(), 'x.sqlite3'), dim=3);
+            e.add(documents=[{'id': 'a', 'text': 'hi'}], embeddings=[[1, 0, 0]]);
+            assert e.search([1, 0, 0], 1)[0]['document_id'] == 'a'"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    name: sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pipx run build --sdist
+      - name: Verify the sdist builds from source
+        run: pip install dist/*.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    name: publish to PyPI
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    environment: pypi            # must match the PyPI trusted-publisher config
+    permissions:
+      id-token: write            # OIDC token for Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        # with:
+        #   repository-url: https://test.pypi.org/legacy/   # uncomment for TestPyPI

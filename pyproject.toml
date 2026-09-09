@@ -3,7 +3,7 @@ requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "retrieval-engine"
+name = "sqlite-hybrid-search"
 version = "0.1.0"
 description = "Ultra-fast, in-process hybrid search & agent memory engine in C++17 with Python bindings."
 readme = "README.md"
@@ -41,15 +41,15 @@ classifiers = [
 
 # Fill in the real repository URL before publishing to PyPI.
 # [project.urls]
-# Homepage = "https://github.com/OWNER/retrieval-engine"
-# Repository = "https://github.com/OWNER/retrieval-engine"
-# Documentation = "https://github.com/OWNER/retrieval-engine/blob/main/README.md"
+# Homepage = "https://github.com/OWNER/sqlite-hybrid-search"
+# Repository = "https://github.com/OWNER/sqlite-hybrid-search"
+# Documentation = "https://github.com/OWNER/sqlite-hybrid-search/blob/main/README.md"
 
 [project.scripts]
-engine = "retrieval_engine.cli:main"
+hybrid-search = "sqlite_hybrid_search.cli:main"
 
 [tool.scikit-build]
-wheel.packages = ["python/retrieval_engine"]
+wheel.packages = ["python/sqlite_hybrid_search"]
 
 # The wheel already carries only the compiled extension + the Python
 # package. Trim dev-only scaffold from the source distribution too -- it

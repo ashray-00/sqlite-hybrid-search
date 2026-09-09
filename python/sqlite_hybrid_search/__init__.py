@@ -1,18 +1,18 @@
-"""retrieval_engine: an embeddable, local-first hybrid (dense + sparse)
+"""sqlite_hybrid_search: an embeddable, local-first hybrid (dense + sparse)
 retrieval and agent-memory engine.
 
-This package is a thin Python layer over `_retrieval_engine_ext`, the
+This package is a thin Python layer over `_sqlite_hybrid_search_ext`, the
 compiled nanobind extension module (bindings/python_bindings.cpp). The
 native module is deliberately close to the C++ API; this layer adapts it
 to a friendlier Python shape -- dict-based documents in, dict-based
-results out -- and is what `import retrieval_engine` actually gives you.
-Do not import `retrieval_engine._retrieval_engine_ext` directly.
+results out -- and is what `import sqlite_hybrid_search` actually gives you.
+Do not import `sqlite_hybrid_search._sqlite_hybrid_search_ext` directly.
 
 Quickstart:
 
-    import retrieval_engine
+    import sqlite_hybrid_search
 
-    engine = retrieval_engine.Engine("my_index.sqlite3", dim=4)
+    engine = sqlite_hybrid_search.Engine("my_index.sqlite3", dim=4)
     engine.add(
         documents=[{"id": "doc-1", "text": "the quick brown fox"}],
         embeddings=[[1.0, 0.0, 0.0, 0.0]],
@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import _retrieval_engine_ext as _ext
+from . import _sqlite_hybrid_search_ext as _ext
 
 __all__ = ["Engine"]
 

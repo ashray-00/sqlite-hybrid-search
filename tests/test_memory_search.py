@@ -12,17 +12,17 @@ import subprocess
 import time
 from pathlib import Path
 
-import retrieval_engine
-from retrieval_engine import _retrieval_engine_ext as _ext
+import sqlite_hybrid_search
+from sqlite_hybrid_search import _sqlite_hybrid_search_ext as _ext
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ENGINE_CLI = REPO_ROOT / ".venv" / "bin" / "engine"
+ENGINE_CLI = REPO_ROOT / ".venv" / "bin" / "hybrid-search"
 
 _DIM = 4
 _ONE_DAY_SECONDS = 86400
 
 
-def _add_two_chunk_corpus_with_explicit_timestamps(engine: retrieval_engine.Engine) -> None:
+def _add_two_chunk_corpus_with_explicit_timestamps(engine: sqlite_hybrid_search.Engine) -> None:
     """Ingests the same "old" (higher raw similarity, one day old) vs.
     "recent" (slightly lower raw similarity, brand new) corpus the C++ test
     uses -- built directly against the native module, since the friendly
@@ -59,7 +59,7 @@ def _add_two_chunk_corpus_with_explicit_timestamps(engine: retrieval_engine.Engi
 
 
 def test_search_memory_ranks_recent_document_above_slightly_more_similar_older_one(tmp_path):
-    engine = retrieval_engine.Engine(str(tmp_path / "memory_test.sqlite3"), dim=_DIM)
+    engine = sqlite_hybrid_search.Engine(str(tmp_path / "memory_test.sqlite3"), dim=_DIM)
     _add_two_chunk_corpus_with_explicit_timestamps(engine)
 
     query_vec = [1.0, 0.0, 0.0, 0.0]
@@ -74,7 +74,7 @@ def test_search_memory_ranks_recent_document_above_slightly_more_similar_older_o
 
 
 def test_search_memory_explained_includes_recency_fields(tmp_path):
-    engine = retrieval_engine.Engine(str(tmp_path / "memory_test_explained.sqlite3"), dim=_DIM)
+    engine = sqlite_hybrid_search.Engine(str(tmp_path / "memory_test_explained.sqlite3"), dim=_DIM)
     _add_two_chunk_corpus_with_explicit_timestamps(engine)
 
     explanations = engine.search_memory_explained("unrelated", [1.0, 0.0, 0.0, 0.0], top_k=2, decay_lambda=0.1)

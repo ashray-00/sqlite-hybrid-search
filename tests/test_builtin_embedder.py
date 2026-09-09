@@ -22,12 +22,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
-import retrieval_engine
+import sqlite_hybrid_search
 
 _EMBEDDING_DIM = 384
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_ENGINE_CLI = _REPO_ROOT / ".venv" / "bin" / "engine"
+_ENGINE_CLI = _REPO_ROOT / ".venv" / "bin" / "hybrid-search"
 
 _MINILM_DIM = 384
 
@@ -68,7 +68,7 @@ def _cosine(a, b) -> float:
 
 def _engine_with_mock_model(tmp_path, db_filename):
     model_path = _write_mock_model(tmp_path / "mock_model.txt")
-    engine = retrieval_engine.Engine(str(tmp_path / db_filename), dim=_EMBEDDING_DIM)
+    engine = sqlite_hybrid_search.Engine(str(tmp_path / db_filename), dim=_EMBEDDING_DIM)
     engine.load_embedding_model(model_path)
     return engine
 
@@ -112,7 +112,7 @@ def test_semantically_related_text_scores_higher(tmp_path):
 
 
 def test_cli_routes_text_through_the_builtin_embedder(tmp_path):
-    """`engine ingest/query --model <m> --model-dim <n>` generates vectors
+    """`hybrid-search ingest/query --model <m> --model-dim <n>` generates vectors
     under the hood -- no caller-supplied floats at the CLI at all.
     """
     model_path = _write_mock_model(tmp_path / "mock_model.txt")
@@ -143,7 +143,7 @@ def test_cli_routes_text_through_the_builtin_embedder(tmp_path):
 
 
 def test_load_embedding_model_with_missing_file_raises(tmp_path):
-    engine = retrieval_engine.Engine(str(tmp_path / "missing.sqlite3"), dim=_EMBEDDING_DIM)
+    engine = sqlite_hybrid_search.Engine(str(tmp_path / "missing.sqlite3"), dim=_EMBEDDING_DIM)
 
     with pytest.raises(RuntimeError):
         engine.load_embedding_model(str(tmp_path / "does_not_exist.bin"))
@@ -154,7 +154,7 @@ def test_load_embedding_model_with_wrong_dimension_raises(tmp_path):
     # Mock model advertises a different dimension than the engine was built for.
     model_path = tmp_path / "wrong_dim_model.txt"
     model_path.write_text(f"RETRIEVAL_ENGINE_MOCK_EMBEDDING_MODEL v1\ndim={_EMBEDDING_DIM + 1}\n", encoding="utf-8")
-    engine = retrieval_engine.Engine(str(tmp_path / "wrong_dim.sqlite3"), dim=_EMBEDDING_DIM)
+    engine = sqlite_hybrid_search.Engine(str(tmp_path / "wrong_dim.sqlite3"), dim=_EMBEDDING_DIM)
 
     with pytest.raises(ValueError):
         engine.load_embedding_model(str(model_path))
@@ -170,7 +170,7 @@ def _require_onnx_model():
 
 def test_onnx_backend_embeds_and_retrieves_by_meaning(tmp_path):
     model_path = _require_onnx_model()
-    engine = retrieval_engine.Engine(str(tmp_path / "onnx.sqlite3"), dim=_MINILM_DIM)
+    engine = sqlite_hybrid_search.Engine(str(tmp_path / "onnx.sqlite3"), dim=_MINILM_DIM)
     engine.load_embedding_model(model_path)
     assert engine.has_embedding_model()
     assert engine.embedding_dim() == _MINILM_DIM

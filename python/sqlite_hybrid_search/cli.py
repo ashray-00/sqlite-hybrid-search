@@ -1,8 +1,8 @@
-"""Command-line interface for retrieval_engine:
+"""Command-line interface for sqlite-hybrid-search:
 
-    engine ingest <folder_path>                      Chunk and index every .txt
+    hybrid-search ingest <folder_path>                      Chunk and index every .txt
                                                        file in a folder.
-    engine query "<text query>" [--decay] [--explain] Run a hybrid (dense +
+    hybrid-search query "<text query>" [--decay] [--explain] Run a hybrid (dense +
                                                        sparse) search, optionally
                                                        discounted by recency and/or
                                                        printed with a full score
@@ -31,7 +31,7 @@ the dense index end to end; it is not a real semantic embedding.
 
 Pass `--model <path> --model-dim <n>` to both `ingest` and `query` to route
 text through the engine's built-in embedder instead (RetrievalEngine::embed()) --
-then `engine query "Where do I live?"` generates the query vector under the
+then `hybrid-search query "Where do I live?"` generates the query vector under the
 hood with no caller-supplied floats. Use the *same* `--model`/`--model-dim`
 for `query` as you did for `ingest`: the index is built for one embedding
 space and one dimensionality.
@@ -44,12 +44,12 @@ import hashlib
 import sys
 from pathlib import Path
 
-from . import _retrieval_engine_ext as _ext
+from . import _sqlite_hybrid_search_ext as _ext
 
 _DEFAULT_DIM = 64
 _CHUNK_WINDOW_TOKENS = 200
 _CHUNK_OVERLAP_TOKENS = 40
-_DB_FILENAME = ".retrieval_engine.sqlite3"
+_DB_FILENAME = ".hybrid_search.sqlite3"
 
 
 def _hash_embed(text: str, dim: int = _DEFAULT_DIM) -> list[float]:
@@ -73,7 +73,7 @@ def _resolve_model_args(args: argparse.Namespace, command: str) -> int | None:
     to fail with, or None if the arguments are consistent.
     """
     if args.model is not None and args.model_dim is None:
-        print(f"engine {command}: error: --model requires --model-dim <n>", file=sys.stderr)
+        print(f"hybrid-search {command}: error: --model requires --model-dim <n>", file=sys.stderr)
         return 1
     return None
 
@@ -100,15 +100,15 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
 
     folder = Path(args.folder_path)
     if not folder.exists():
-        print(f"engine ingest: error: {folder} does not exist", file=sys.stderr)
+        print(f"hybrid-search ingest: error: {folder} does not exist", file=sys.stderr)
         return 1
     if not folder.is_dir():
-        print(f"engine ingest: error: {folder} is not a directory", file=sys.stderr)
+        print(f"hybrid-search ingest: error: {folder} is not a directory", file=sys.stderr)
         return 1
 
     text_files = sorted(folder.glob("*.txt"))
     if not text_files:
-        print(f"engine ingest: error: no .txt files found in {folder}", file=sys.stderr)
+        print(f"hybrid-search ingest: error: no .txt files found in {folder}", file=sys.stderr)
         return 1
 
     db_path = Path.cwd() / _DB_FILENAME
@@ -116,7 +116,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         engine = _ext.NativeEngine(str(db_path), _embed_dim(args))
         embed = _make_embedder(engine, args)
     except Exception as error:  # noqa: BLE001 -- surface any engine failure as a clean CLI error
-        print(f"engine ingest: error: {error}", file=sys.stderr)
+        print(f"hybrid-search ingest: error: {error}", file=sys.stderr)
         return 1
 
     documents = []
@@ -125,7 +125,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         try:
             text = file_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as error:
-            print(f"engine ingest: error: could not read {file_path}: {error}", file=sys.stderr)
+            print(f"hybrid-search ingest: error: could not read {file_path}: {error}", file=sys.stderr)
             return 1
 
         document = _ext.DocumentInput()
@@ -148,7 +148,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     try:
         engine.add_documents(documents)
     except Exception as error:  # noqa: BLE001 -- surface any engine failure as a clean CLI error
-        print(f"engine ingest: error: {error}", file=sys.stderr)
+        print(f"hybrid-search ingest: error: {error}", file=sys.stderr)
         return 1
 
     print(f"Ingested {len(documents)} document(s), {total_chunks} chunk(s), into {db_path}")
@@ -166,13 +166,13 @@ def _cmd_query(args: argparse.Namespace) -> int:
         # nanobind type-mismatch message ("incompatible function arguments
         # ... Invoked with types: ...") that leaks internal binding details
         # instead of explaining the actual mistake.
-        print(f"engine query: error: --top-k must be a positive integer (got {args.top_k})", file=sys.stderr)
+        print(f"hybrid-search query: error: --top-k must be a positive integer (got {args.top_k})", file=sys.stderr)
         return 1
 
     db_path = Path.cwd() / _DB_FILENAME
     if not db_path.exists():
         print(
-            f"engine query: error: no index found at {db_path} -- run 'engine ingest <folder>' first",
+            f"hybrid-search query: error: no index found at {db_path} -- run 'hybrid-search ingest <folder>' first",
             file=sys.stderr,
         )
         return 1
@@ -189,7 +189,7 @@ def _cmd_query(args: argparse.Namespace) -> int:
         else:
             results = engine.search_memory(args.text, query_vec, args.top_k, args.decay)
     except Exception as error:  # noqa: BLE001 -- surface any engine failure as a clean CLI error
-        print(f"engine query: error: {error}", file=sys.stderr)
+        print(f"hybrid-search query: error: {error}", file=sys.stderr)
         return 1
 
     if not results:
@@ -238,7 +238,9 @@ def _add_model_arguments(subparser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="engine", description="Local-first hybrid retrieval engine CLI.")
+    parser = argparse.ArgumentParser(
+        prog="hybrid-search", description="Local-first hybrid (dense + sparse) search over SQLite."
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     ingest_parser = subparsers.add_parser("ingest", help="Chunk and index every .txt file in a folder.")

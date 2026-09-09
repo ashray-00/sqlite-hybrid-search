@@ -1258,3 +1258,34 @@ ADR-4 amendment. Blockers hit during the build:
 
 Verified: `ctest` 41/41, `pytest` 32/32. Reopen at 100k: 14.6 s -> 24.5 ms.
 Hybrid Recall@10 = 1.000 at 1k/10k/100k.
+
+---
+
+## Rename to `sqlite-hybrid-search` + PyPI release workflow
+
+Renamed the **Python-facing identity** for PyPI: distribution
+`retrieval-engine` -> `sqlite-hybrid-search`, import package
+`retrieval_engine` -> `sqlite_hybrid_search`, extension module
+`_retrieval_engine_ext` -> `_sqlite_hybrid_search_ext`, console script
+`engine` -> `hybrid-search` (`engine` is a generic name that silently
+collides on `pip install` -- last one wins), CLI index file
+`.retrieval_engine.sqlite3` -> `.hybrid_search.sqlite3`. CMake project +
+link target also renamed (`sqlite_hybrid_search::core`).
+
+**Kept as `retrieval_engine`** (internal, not shipped to PyPI): the C++
+namespace `retrieval_engine::`, the public header path
+`core/include/retrieval_engine/`, and the `RETRIEVAL_ENGINE_*` CMake
+option names. Renaming those touches ~40 source files and every `#include`
+for no user-visible benefit; the C++ integration section of README.md
+notes the namespace explicitly.
+
+Added `.github/workflows/release.yml`: `cibuildwheel` builds cp39-cp313
+wheels for Linux (x86_64) + macOS (Intel + Apple Silicon) with the ONNX
+backend off (source-build opt-in), plus an sdist; on a published GitHub
+Release it uploads to PyPI via Trusted Publishing (OIDC, environment
+`pypi`, workflow filename `release.yml`). Windows wheels are out of scope
+for now (untested; the usearch AppleClang patch and MSVC are unverified).
+
+Verified: ctest 41/41, pytest 32/32, ruff + clang-format clean, twine
+check passes both artifacts, fresh-venv install of the renamed wheel runs
+`import sqlite_hybrid_search` and `hybrid-search ingest/query`.
