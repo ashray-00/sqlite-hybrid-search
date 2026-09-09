@@ -3,6 +3,43 @@
 Decision log across stages. Kept separate from BUILD_PLAN.md so the plan
 stays a plan and this stays a record of what actually happened building it.
 
+## Stage 2
+
+### Checked: FTS5 is compiled into the linked SQLite3 (it is -- not a blocker)
+
+FTS5 is an optional, compile-time SQLite feature -- not guaranteed by every
+build, unlike the core library. Before writing the Stage 2 RED test, verified
+it against the *exact* linked library (`/opt/homebrew/opt/sqlite`), not just
+the `sqlite3` CLI (which can be built with different flags than the
+library): compiled a minimal `CREATE VIRTUAL TABLE ... USING fts5(...)`
+smoke test against our actual include/lib paths. It works
+(`ENABLE_FTS5` is in Homebrew sqlite 3.53.4's `compile_options`). Kept as a
+permanent regression test (`FtsLibrary.RanksRowsByBm25Directly` in
+test_stage2.cpp) rather than a one-off check, mirroring the
+usearch/SQLite3 sanity tests from Stage 0.
+
+**Revisit when:** if the project ever moves off Homebrew's sqlite (e.g. a
+vendored/FetchContent'd SQLite amalgamation for portability, similar to how
+usearch is vendored), re-verify FTS5 is enabled in that build too -- it's
+not implied by "SQLite3 found" the way it was implicitly assumed here.
+
+### Decision: added search_dense() alongside search_chunks() rather than renaming (deferred to GREEN)
+
+Stage 2's spec names a `search_dense()` method to pair with the new
+`search_sparse()`/`search_hybrid()`, but Stage 1 already shipped
+`search_chunks()` doing the exact same cosine-similarity search. Declared
+`search_dense()` as a new method for this RED pass rather than renaming
+`search_chunks()` in place, so Stage 1's own tests (which call
+`search_chunks()`) don't need to change as a side effect of Stage 2's RED
+phase -- consistent with the pattern already used for
+`search`/`search_chunks` in Stage 0->1.
+
+**Revisit at Phase 2 (GREEN):** decide whether `search_chunks()` becomes a
+thin alias for `search_dense()`, or is retired and Stage 1's tests updated
+to call `search_dense()` directly (mirroring how Stage 0's dummy API was
+retired once Stage 1 shipped its real replacement). Shipping both as
+independent, duplicate implementations would be the wrong outcome.
+
 ## Stage 1
 
 ### Decision: replaced istringstream with manual scanning in chunk_text() (user-requested)

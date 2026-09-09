@@ -15,3 +15,12 @@ target_link_libraries(test_stage1 PRIVATE
 )
 
 gtest_discover_tests(test_stage1)
+
+add_executable(test_stage2 test_stage2.cpp)
+
+target_link_libraries(test_stage2 PRIVATE
+    retrieval_engine::core
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_stage2)

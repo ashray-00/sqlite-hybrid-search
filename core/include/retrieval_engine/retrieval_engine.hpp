@@ -28,13 +28,34 @@ struct DocumentInput {
     std::vector<DocumentChunkInput> chunks;
 };
 
-// One chunk returned by search_chunks(), with enough context to trace it
-// back to its source document without a further lookup.
+// One chunk returned by search_chunks()/search_dense()/search_sparse()/
+// search_hybrid(), with enough context to trace it back to its source
+// document without a further lookup.
 struct ChunkSearchResult {
     std::string document_id;
     std::size_t chunk_index;  // position within that document's chunk list, 0-based
     std::string text;
-    float distance;  // raw index distance for the chunk-search metric (lower = more similar)
+    float distance;  // meaning depends on which search produced this result -- see each method's doc comment
+};
+
+// One result's full per-ranking score breakdown, returned by
+// search_explained(). Stage 2 (BUILD_PLAN.md): "a search_explained() that
+// returns the score breakdown (dense score, sparse score, fused rank...)".
+struct SearchExplanation {
+    std::string document_id;
+    std::size_t chunk_index;  // position within that document's chunk list, 0-based
+    std::string text;
+
+    bool dense_present;      // true if this chunk was among search_dense()'s results
+    float dense_distance;    // raw cosine distance from search_dense() (meaningful only if dense_present)
+    std::size_t dense_rank;  // 1-based rank within the dense-only result list (0 if dense_present is false)
+
+    bool sparse_present;       // true if this chunk was among search_sparse()'s results
+    float sparse_bm25_score;   // raw FTS5 bm25() score, lower = more relevant (meaningful only if sparse_present)
+    std::size_t sparse_rank;   // 1-based rank within the sparse-only result list (0 if sparse_present is false)
+
+    float fused_score;       // Reciprocal Rank Fusion score (k=60), higher = more relevant
+    std::size_t final_rank;  // 1-based rank within the fused/hybrid result list
 };
 
 // RetrievalEngine ties a usearch HNSW index (in-memory acceleration
@@ -77,6 +98,45 @@ public:
     // Number of chunk rows currently present in SQLite -- used to verify
     // ingestion persisted everything add_documents() was given.
     std::size_t chunk_count() const;
+
+    // Stage 2 (BUILD_PLAN.md): dense-only search -- same cosine-similarity
+    // ranking as search_chunks() above, under the name that pairs with
+    // search_sparse()/search_hybrid() below. `distance` in each result is
+    // the raw cosine distance (lower = more similar). Throws
+    // std::invalid_argument if `query.size() != dim`, or std::runtime_error
+    // on a usearch failure.
+    //
+    // NOTE: search_chunks() and search_dense() are currently two names for
+    // the same operation; consolidating them is a deliberate decision for
+    // Phase 2 (GREEN) to make, not a side effect of adding this method --
+    // see docs/DECISIONS.md.
+    std::vector<ChunkSearchResult> search_dense(const std::vector<float>& query, std::size_t k) const;
+
+    // Sparse keyword search over chunk text via SQLite FTS5's bm25()
+    // ranking function. `distance` in each result holds the raw bm25 score
+    // (lower = more relevant, FTS5's convention). Only chunks matching
+    // `query_text` are returned, so the result may have fewer than `k`
+    // entries -- or none. Throws std::runtime_error on an invalid FTS5
+    // query (e.g. unbalanced quotes) or other SQLite failure.
+    std::vector<ChunkSearchResult> search_sparse(const std::string& query_text, std::size_t k) const;
+
+    // Combines search_dense() and search_sparse() via Reciprocal Rank Fusion
+    // (RRF, k=60): each chunk's fused score is the sum, over whichever of
+    // the two rankings it appears in, of 1 / (60 + rank-in-that-ranking) (0
+    // for a ranking it's absent from), ordered highest-fused-score-first.
+    // `distance` in each result holds this fused score (higher = more
+    // relevant -- unlike search_dense()'s and search_sparse()'s own
+    // conventions). Throws under the same conditions as search_dense() and
+    // search_sparse().
+    std::vector<ChunkSearchResult> search_hybrid(const std::string& query_text, const std::vector<float>& query_vec,
+                                                  std::size_t k) const;
+
+    // Like search_hybrid(), but returns the full per-result score breakdown
+    // (dense distance/rank, sparse bm25/rank, fused score, final rank)
+    // instead of just the fused ranking -- for debugging and tuning
+    // relevance. Throws under the same conditions as search_hybrid().
+    std::vector<SearchExplanation> search_explained(const std::string& query_text,
+                                                      const std::vector<float>& query_vec, std::size_t k) const;
 
     RetrievalEngine(const RetrievalEngine&) = delete;
     RetrievalEngine& operator=(const RetrievalEngine&) = delete;
