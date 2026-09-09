@@ -39,13 +39,19 @@ index_dense_t DenseIndex::MakeIndex(std::size_t dim) {
     return index_dense_t::make(metric_punned_t(dim, metric_kind_t::cos_k));
 }
 
-DenseIndex::DenseIndex(std::size_t dim) : dimensions_(dim), index_(MakeIndex(dim)) {}
+DenseIndex::DenseIndex(std::size_t dim)
+    : dimensions_(dim),
+      search_threads_(UsearchSearchThreadCount()),
+      index_(MakeIndex(dim)),
+      search_slots_(search_threads_) {
+    ProvisionSearchThreads(index_, search_threads_, "DenseIndex");
+}
 
 void DenseIndex::Add(std::uint64_t key, const std::vector<float>& embedding) {
     if (embedding.size() != dimensions_)
         throw std::invalid_argument("DenseIndex::Add: embedding size does not match index dimensionality");
 
-    EnsureCapacity(index_, "DenseIndex::Add");
+    EnsureCapacity(index_, search_threads_, "DenseIndex::Add");
     const auto add_result = index_.add(static_cast<index_dense_t::vector_key_t>(key), embedding.data());
     if (!add_result) {
         throw std::runtime_error(std::string("DenseIndex::Add: usearch insertion failed: ") +
@@ -57,7 +63,14 @@ std::vector<std::pair<std::uint64_t, float>> DenseIndex::Search(const std::vecto
     if (query.size() != dimensions_)
         throw std::invalid_argument("DenseIndex::Search: query size does not match index dimensionality");
 
-    const auto search_result = index_.search(query.data(), k);
+    // Hold an explicit search-slot id for the whole call. usearch's
+    // default any_thread() returns the slot to its free list the instant
+    // search() returns, but search_result still points into that slot's
+    // buffers, which dump_to() reads below -- a concurrent Search() reusing
+    // the slot would race. The lease also caps concurrent searchers at the
+    // pool size (blocking the surplus) instead of exhausting usearch's list.
+    const SearchSlotPool::Lease slot = search_slots_.Acquire();
+    const auto search_result = index_.search(query.data(), k, slot.id());
     if (!search_result) {
         throw std::runtime_error(std::string("DenseIndex::Search: usearch query failed: ") +
                                  (search_result.error.what() ? search_result.error.what() : "unknown error"));
@@ -108,6 +121,10 @@ void DenseIndex::Load(const std::string& path) {
         Clear();
         throw std::invalid_argument("DenseIndex::Load: sidecar dimensionality does not match this index");
     }
+
+    // load() re-derived the per-thread `contexts_` count from the file --
+    // re-assert this host's concurrent-search provisioning.
+    ProvisionSearchThreads(index_, search_threads_, "DenseIndex::Load");
 }
 
 void DenseIndex::Clear() {
@@ -116,6 +133,8 @@ void DenseIndex::Clear() {
     // and freeing the vector tape through the same path that allocated it.
     // Swapping in a fresh index instead corrupts the heap on macOS/ARM64.
     index_.reset();
+    // reset() drops the per-thread `contexts_` count back to the default.
+    ProvisionSearchThreads(index_, search_threads_, "DenseIndex::Clear");
 }
 
 }  // namespace retrieval_engine::detail

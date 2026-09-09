@@ -1,5 +1,7 @@
 #pragma once
 
+#include "usearch_util.hpp"  // SearchSlotPool, UsearchSearchThreadCount
+
 #include <usearch/index_dense.hpp>
 
 #include <cstddef>
@@ -30,7 +32,9 @@ public:
     void Add(std::uint64_t key, const std::vector<float>& embedding);
 
     // Returns (up to) `k` nearest (key, distance) pairs, nearest-first
-    // (lower distance = more similar). Throws std::invalid_argument if
+    // (lower distance = more similar). Safe to call concurrently from up to
+    // UsearchSearchThreadCount() threads; a further concurrent caller blocks
+    // until a search slot frees. Throws std::invalid_argument if
     // `query.size() != dimensions()`, or std::runtime_error on a usearch
     // failure.
     std::vector<std::pair<std::uint64_t, float>> Search(const std::vector<float>& query, std::size_t k) const;
@@ -55,7 +59,10 @@ private:
     static unum::usearch::index_dense_t MakeIndex(std::size_t dim);
 
     std::size_t dimensions_;
+    std::size_t search_threads_;
     unum::usearch::index_dense_t index_;
+    // `mutable` because Search() is const but must lease/return a slot.
+    mutable SearchSlotPool search_slots_;
 };
 
 }  // namespace retrieval_engine::detail

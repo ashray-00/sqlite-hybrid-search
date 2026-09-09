@@ -60,3 +60,12 @@ target_link_libraries(test_persistence PRIVATE
 )
 
 gtest_discover_tests(test_persistence DISCOVERY_TIMEOUT 60)
+
+add_executable(test_concurrency test_concurrency.cpp)
+
+target_link_libraries(test_concurrency PRIVATE
+    sqlite_hybrid_search::core
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_concurrency DISCOVERY_TIMEOUT 60)
