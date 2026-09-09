@@ -39,11 +39,10 @@ classifiers = [
     "Topic :: Text Processing :: Indexing",
 ]
 
-# Fill in the real repository URL before publishing to PyPI.
-# [project.urls]
-# Homepage = "https://github.com/OWNER/sqlite-hybrid-search"
-# Repository = "https://github.com/OWNER/sqlite-hybrid-search"
-# Documentation = "https://github.com/OWNER/sqlite-hybrid-search/blob/main/README.md"
+[project.urls]
+Homepage = "https://github.com/ashray-00/sqlite-hybrid-search"
+Repository = "https://github.com/ashray-00/sqlite-hybrid-search"
+Documentation = "https://github.com/ashray-00/sqlite-hybrid-search/blob/main/README.md"
 
 [project.scripts]
 hybrid-search = "sqlite_hybrid_search.cli:main"

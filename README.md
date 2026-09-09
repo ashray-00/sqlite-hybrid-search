@@ -5,7 +5,7 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)
 ![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB.svg)
-![PyPI](https://img.shields.io/badge/PyPI-unpublished-lightgrey.svg)
+[![PyPI](https://img.shields.io/pypi/v/sqlite-hybrid-search.svg)](https://pypi.org/project/sqlite-hybrid-search/)
 
 Drop it **inside** an app to give a local LLM two things it lacks: knowledge of
 your private data (RAG) and memory that survives across sessions — with **no
@@ -35,7 +35,7 @@ CMake ≥ 3.24, Python ≥ 3.9 with `venv`, and SQLite (with FTS5 — the defaul
 mainstream builds). `usearch` and GoogleTest are fetched automatically.
 
 ```console
-git clone https://github.com/<owner>/sqlite-hybrid-search   # your fork/repo URL
+git clone https://github.com/ashray-00/sqlite-hybrid-search
 cd sqlite-hybrid-search
 python3 -m venv .venv && .venv/bin/pip install -e .
 ```
@@ -209,7 +209,7 @@ internal name kept stable across the Python-package rename.
 ```cmake
 include(FetchContent)
 FetchContent_Declare(sqlite_hybrid_search
-    GIT_REPOSITORY https://github.com/<owner>/sqlite-hybrid-search
+    GIT_REPOSITORY https://github.com/ashray-00/sqlite-hybrid-search
     GIT_TAG main)
 FetchContent_MakeAvailable(sqlite_hybrid_search)
 

@@ -4,7 +4,7 @@ name: Release
 # uploads them to PyPI via Trusted Publishing (OIDC -- no API token).
 #
 # PyPI setup (one time): project -> Publishing -> add a pending publisher
-#   Owner:            <your-github-user-or-org>
+#   Owner:            ashray-00
 #   Repository:       sqlite-hybrid-search
 #   Workflow name:    release.yml
 #   Environment name: pypi
