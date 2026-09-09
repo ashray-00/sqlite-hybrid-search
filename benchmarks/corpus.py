@@ -10,8 +10,14 @@ same ranking:
     IDF signal, i.e. exact-term territory.
   * Relevant docs also share a short topic-word phrase with the query ->
     dense (bag-of-words) similarity has something to latch onto.
-  * Distractor docs reuse only the common vocabulary, never an entity
-    token, so they are near-misses rather than random noise.
+  * Distractor docs are drawn from the same vocabulary but never contain an
+    entity token, so they are near-misses rather than random noise.
+
+The vocabulary is a Zipf-distributed pool of pseudo-words: a few words are
+frequent and most are rare, as in real text. Query topic words come from a
+mid-frequency band so each one matches only a small slice of the corpus --
+without that, the BM25 arm rescans most of the corpus on every query and
+its latency reflects the toy vocabulary rather than the engine.
 
 Embeddings are a deterministic hashed bag-of-words (the "hashing trick"),
 L2-normalised -- enough structure for cosine ANN to be meaningful without
@@ -25,12 +31,19 @@ import random
 import zlib
 from dataclasses import dataclass
 
-_COMMON_WORDS = (
-    "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu "
-    "nu xi omicron pi rho sigma tau upsilon phi chi psi omega north south "
-    "east west river mountain forest desert harbor bridge tunnel market "
-    "garden library station"
-).split()
+_VOCAB_SIZE = 800
+_VOCAB = [f"w{i:04d}" for i in range(_VOCAB_SIZE)]
+# Zipf-ish weights: flat enough (exponent 0.5) that even the most frequent
+# word lands in well under a third of documents at the doc lengths below.
+_WEIGHTS = [1.0 / (i + 1) ** 0.5 for i in range(_VOCAB_SIZE)]
+# Query topic words are sampled from this rank band -- frequent enough that
+# dense similarity has signal, rare enough (~1% of docs each) that the BM25
+# arm stays selective. The most frequent word overall lands in ~20% of docs.
+_TOPIC_BAND = (200, 560)
+
+_DISTRACTOR_LEN = 12
+_RELEVANT_FILLER_LEN = 6
+_TOPIC_WORDS = 4
 
 
 @dataclass
@@ -67,22 +80,24 @@ def build_corpus(
 
     rng = random.Random(seed)
     num_queries = max(1, min(num_queries, num_docs // (relevant_per_query + 1)))
+    topic_pool = _VOCAB[_TOPIC_BAND[0] : _TOPIC_BAND[1]]
 
     documents: list[dict] = []
     embeddings: list[list[float]] = []
     queries: list[dict] = []
 
+    def add(doc_id: str, text: str) -> None:
+        documents.append({"id": doc_id, "text": text})
+        embeddings.append(embed_text(text, dim))
+
     for q in range(num_queries):
         entity = f"entity{q:05d}"
-        topic_words = rng.sample(_COMMON_WORDS, 4)
+        topic_words = rng.sample(topic_pool, _TOPIC_WORDS)
         relevant_ids: list[str] = []
         for _ in range(relevant_per_query):
-            filler = rng.sample(_COMMON_WORDS, 6)
-            text = " ".join([entity, *topic_words, *filler])
-            doc_id = f"doc{len(documents):06d}"
-            documents.append({"id": doc_id, "text": text})
-            embeddings.append(embed_text(text, dim))
-            relevant_ids.append(doc_id)
+            filler = rng.choices(_VOCAB, weights=_WEIGHTS, k=_RELEVANT_FILLER_LEN)
+            add(f"doc{len(documents):06d}", " ".join([entity, *topic_words, *filler]))
+            relevant_ids.append(documents[-1]["id"])
         query_text = " ".join([entity, *topic_words])
         queries.append(
             {
@@ -93,9 +108,7 @@ def build_corpus(
         )
 
     while len(documents) < num_docs:
-        text = " ".join(rng.sample(_COMMON_WORDS, 10))
-        doc_id = f"doc{len(documents):06d}"
-        documents.append({"id": doc_id, "text": text})
-        embeddings.append(embed_text(text, dim))
+        text = " ".join(rng.choices(_VOCAB, weights=_WEIGHTS, k=_DISTRACTOR_LEN))
+        add(f"doc{len(documents):06d}", text)
 
     return LabeledCorpus(documents=documents, embeddings=embeddings, queries=queries, dim=dim)

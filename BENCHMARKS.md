@@ -31,24 +31,30 @@ other hardware.
 ```
 cmake -B build && cmake --build build            # Linux
 # macOS: cmake -B build -DCMAKE_PREFIX_PATH=/opt/homebrew && cmake --build build
-.venv/bin/python benchmarks/run_eval.py           # 1k / 10k / 100k, ~1.5 min
+.venv/bin/python benchmarks/run_eval.py           # 1k / 10k / 100k, ~45 s
 ```
 
 ### Honest caveat on the corpus
 
-The corpus is **synthetic** (`benchmarks/corpus.py`): every relevant document
-carries a unique rare entity token, and embeddings are a 64-dim hashed
-bag-of-words, not a trained model. So:
+The corpus is **synthetic** (`benchmarks/corpus.py`): a Zipf-distributed pool
+of pseudo-words (a few frequent, most rare, as in real text), where every
+relevant document for a query shares a unique rare entity token plus a
+handful of mid-frequency topic words with that query. Embeddings are a 64-dim
+hashed bag-of-words, not a trained model.
 
-- **Sparse/BM25 numbers are a best case** — the rare entity token is a perfect
-  exact-match signal, which is exactly the situation BM25 is built for.
-- **Dense numbers are a worst case** — a 64-dim hashing-trick vector collides
-  badly as the corpus grows; a real embedding model (nomic, BGE-M3, MiniLM via
-  the built-in ONNX path) would not degrade like the `dense` column does here.
-- **Latency and memory are model-independent** and transfer directly.
+- **Sparse/BM25 has a strong signal** — the unique entity token in each query
+  is a near-perfect exact-match cue, so `sparse` scores near the top. A real
+  corpus without such a clean per-query key would be harder.
+- **Dense is a 64-dim hashing trick, not an embedding model.** It does
+  reasonably here because the vocabulary is clean, but a trained model
+  (MiniLM / nomic / BGE-M3 via the built-in ONNX path) is what you would
+  actually deploy; treat the `dense` column as a floor.
+- **Latency and memory are model-independent** and transfer directly — the
+  vocabulary was made realistic specifically so the BM25 latency reflects the
+  engine, not a toy 40-word dictionary.
 
-Read the quality section as *"how the fusion behaves when the two signals
-disagree"*, not as an absolute quality score for dense retrieval.
+A real BEIR run (SciFact / NFCorpus) with a trained embedder is tracked as
+follow-up work; this harness measures the pipeline mechanics and its speed.
 
 ---
 
@@ -58,7 +64,7 @@ disagree"*, not as an absolute quality score for dense retrieval.
 
 | Approach | 1k | 10k | 100k |
 |---|---|---|---|
-| dense | 0.987 | 0.783 | 0.493 |
+| dense | 1.000 | 0.990 | 0.883 |
 | sparse | 1.000 | 1.000 | 1.000 |
 | **hybrid** | **1.000** | **1.000** | **1.000** |
 | hybrid_decay | 1.000 | 1.000 | 1.000 |
@@ -67,34 +73,32 @@ disagree"*, not as an absolute quality score for dense retrieval.
 
 | Approach | 1k | 10k | 100k |
 |---|---|---|---|
-| dense | 0.944 | 0.752 | 0.507 |
+| dense | 0.987 | 0.947 | 0.752 |
 | sparse | 1.000 | 1.000 | 1.000 |
-| hybrid | 0.992 | 0.969 | 0.951 |
-| **hybrid_decay** | **0.998** | **0.998** | **0.997** |
+| hybrid | 1.000 | 1.000 | 0.993 |
+| **hybrid_decay** | **1.000** | **1.000** | **1.000** |
 
 **MRR@10:**
 
 | Approach | 1k | 10k | 100k |
 |---|---|---|---|
-| dense | 0.978 | 0.870 | 0.673 |
+| dense | 0.985 | 0.957 | 0.799 |
 | sparse | 1.000 | 1.000 | 1.000 |
-| hybrid | 1.000 | 0.995 | 0.990 |
-| hybrid_decay | 1.000 | 1.000 | 0.995 |
+| hybrid | 1.000 | 1.000 | 1.000 |
+| hybrid_decay | 1.000 | 1.000 | 1.000 |
 
 **Reading it:**
 
-- **Hybrid recovers everything dense loses.** As the toy dense vectors collapse
-  (Recall 0.99 → 0.49), `hybrid` stays at **1.000** recall — RRF lets the sparse
-  side carry the query. This is the headline result: *fusion is strictly safer
-  than dense-only.*
-- **When one signal is already perfect, fusing in a noisy one costs a little
-  ranking quality.** `sparse` nDCG is 1.000; `hybrid` nDCG is 0.951 at 100k,
-  because RRF interleaves dense's mistaken candidates. Fusion trades a few
-  points of top-rank precision for robustness.
-- **Recency decay buys most of that back.** `hybrid_decay` nDCG is ~0.997 across
-  all sizes: the decay term breaks ties in favour of the (correctly recent)
-  relevant docs, pushing them back above dense's false positives. This is the
-  agent-memory case working as intended.
+- **Hybrid recovers what dense loses at scale.** Dense recall slips to 0.883
+  and nDCG to 0.752 at 100k as hash collisions accumulate; `hybrid` stays at
+  **1.000 recall / 0.993 nDCG** — RRF lets the BM25 side carry the query when
+  the vector side weakens. Fusion is strictly safer than dense-only.
+- **`sparse` scores a perfect 1.000** because every query contains its
+  relevant docs' unique entity token — a clean exact-match cue this synthetic
+  corpus hands it. Read it as an upper bound, not a claim about arbitrary text.
+- **Recency decay does not cost quality here.** `hybrid_decay` matches or beats
+  `hybrid` on every metric — the decay term only re-orders within the fused
+  top-k, and never demotes a relevant doc below the cut.
 
 ---
 
@@ -104,30 +108,32 @@ disagree"*, not as an absolute quality score for dense retrieval.
 
 | Approach | 1k p50 | 1k p95 | 1k p99 | 10k p50 | 10k p95 | 10k p99 | 100k p50 | 100k p95 | 100k p99 |
 |---|---|---|---|---|---|---|---|---|---|
-| dense | 0.090 | 0.094 | 0.097 | 0.103 | 0.112 | 0.115 | 0.173 | 0.199 | 0.211 |
-| sparse | 0.436 | 0.457 | 0.478 | 4.605 | 5.013 | 5.159 | 49.34 | 49.77 | 49.89 |
-| hybrid | 0.524 | 0.541 | 0.558 | 4.765 | 5.059 | 5.297 | 49.44 | 50.13 | 50.50 |
-| hybrid_decay | 0.729 | 0.790 | 0.818 | 6.517 | 7.350 | 7.630 | 70.06 | 83.28 | 85.93 |
+| dense | 0.092 | 0.097 | 0.103 | 0.109 | 0.127 | 0.147 | 0.185 | 0.229 | 0.334 |
+| sparse | 0.074 | 0.084 | 0.086 | 0.485 | 0.560 | 0.626 | 6.44 | 7.22 | 7.89 |
+| hybrid | 0.169 | 0.180 | 0.192 | 0.609 | 0.669 | 0.724 | 6.70 | 7.57 | 7.95 |
+| hybrid_decay | 0.371 | 0.535 | 0.794 | 2.76 | 4.30 | 4.56 | 33.5 | 45.1 | 49.9 |
 
 **Throughput (queries/sec, single thread):**
 
 | Approach | 1k | 10k | 100k |
 |---|---|---|---|
-| dense | 11048 | 9625 | 5705 |
-| sparse | 2286 | 215 | 20 |
-| hybrid | 1905 | 208 | 20 |
-| hybrid_decay | 1371 | 155 | 14 |
+| dense | 10842 | 9021 | 5209 |
+| sparse | 13425 | 2031 | 153 |
+| hybrid | 5888 | 1635 | 148 |
+| hybrid_decay | 2541 | 342 | 29 |
 
-- **Dense is sub-millisecond and near flat with scale** (0.09 → 0.17 ms p50 from
+- **Dense is sub-millisecond and near flat with scale** (0.09 → 0.19 ms p50 from
   1k to 100k) — usearch HNSW is doing its job.
-- **Sparse/hybrid latency is dominated by FTS5** and grows roughly linearly with
-  corpus size: ~0.4 ms → ~49 ms p50. The OR-of-terms BM25 query scans large
-  posting lists for common tokens. This is the main query-time bottleneck.
-  Fusion now feeds BM25's top `min(k, 200)` rows into RRF — a ceiling that
-  bounds pathologically large `k` without touching ordinary retrieval, so at
-  the benchmark's `k = 10` sparse/hybrid latency is unchanged.
-- **`hybrid_decay` adds a re-scoring pass** over the fused candidate set:
-  +40% p50 over `hybrid` at 100k (49.4 → 70.1 ms), and a wider p95/p99 tail.
+- **Sparse/hybrid latency grows with corpus size but stays single-digit ms**:
+  ~0.1 ms → ~6.7 ms p50 from 1k to 100k. The BM25 query already ranks and
+  `LIMIT`s inside SQLite (`ORDER BY bm25() LIMIT k`, one statement, joined for
+  text), and fusion runs over ≤ 20 candidates; the growth is FTS5 merging
+  longer posting lists. Fusion feeds BM25's top `min(k, 200)` rows into RRF —
+  a ceiling that bounds a very large `k` without touching ordinary retrieval.
+- **`hybrid_decay` is the slow path now** (33 ms p50 at 100k): it looks up
+  each fused candidate's `created_at` with a separate SQL query. Batching that
+  lookup is the next optimisation — for plain hybrid search (no decay) latency
+  is the `hybrid` row above.
 
 **Index load on open.** The usearch graph is persisted to a `<db>.usearch`
 sidecar and memory-loaded on the next open instead of being rebuilt from
@@ -135,9 +141,9 @@ SQLite. Startup is now effectively instant at every size:
 
 | Dataset | Load from sidecar | (was: rebuild from SQLite) |
 |---|---|---|
-| 1k | 0.7 ms | 40 ms |
-| 10k | 3.2 ms | 721 ms |
-| 100k | **24.5 ms** | **14.6 s** |
+| 1k | 0.6 ms | 40 ms |
+| 10k | 3.0 ms | 721 ms |
+| 100k | **~40 ms** | **14.6 s** |
 
 The first open of a brand-new database still rebuilds (there is no sidecar
 yet) and writes the sidecar; every open after that takes the load path. A
@@ -145,8 +151,8 @@ sidecar that is missing, truncated, or out of sync with the chunk table is
 rejected in microseconds and the engine falls back to a rebuild.
 
 **Cold vs warm query.** With the graph loaded from the sidecar, the first
-query after an open is no slower than a warm one (100k `hybrid`: 49.3 ms cold
-vs 49.4 ms warm p50; `dense`: 0.32 ms cold vs 0.17 ms warm).
+query after an open is no slower than a warm one (100k `hybrid`: 8.0 ms cold
+vs 6.7 ms warm p50; `dense`: 0.36 ms cold vs 0.19 ms warm).
 
 ---
 
@@ -154,20 +160,19 @@ vs 49.4 ms warm p50; `dense`: 0.32 ms cold vs 0.17 ms warm).
 
 | Dataset | SQLite | `.usearch` sidecar | Ingest throughput | RSS growth during indexing | Process peak RSS |
 |---|---|---|---|---|---|
-| 1k | 0.57 MB | ~0.5 MB | 21695 docs/s | 3.5 MB | 35 MB |
-| 10k | 5.21 MB | ~4 MB | 12826 docs/s | 11.1 MB | 79 MB |
-| 100k | 51.98 MB | 40.5 MB | 6505 docs/s | 52.5 MB | 430 MB |
+| 1k | 0.59 MB | ~0.5 MB | 20926 docs/s | 3.6 MB | 36 MB |
+| 10k | 5.43 MB | ~4 MB | 11666 docs/s | 11.3 MB | 79 MB |
+| 100k | 55.0 MB | ~41 MB | 5245 docs/s | 52.5 MB | 431 MB |
 
-- **On-disk scales linearly.** SQLite is ~520 bytes/doc (chunk text + metadata +
+- **On-disk scales linearly.** SQLite is ~550 bytes/doc (chunk text + metadata +
   FTS5 index + the vector blob kept for a rebuild); the sidecar adds the
-  serialised HNSW graph (~400 bytes/doc at dim 64). At 100k that is ~92 MB
+  serialised HNSW graph (~400 bytes/doc at dim 64). At 100k that is ~96 MB
   total.
-- **Ingestion throughput falls ~3.3× from 1k to 100k** — dual-writing SQLite,
+- **Ingestion throughput falls ~4× from 1k to 100k** — dual-writing SQLite,
   FTS5, and usearch, with HNSW insertion getting more expensive as the graph
-  grows. The harness ingests in 5k-row batches and the sidecar is reserialised
-  after each one (20 writes at 100k); measured throughput (6505 docs/s) is
-  within run-to-run noise of the pre-persistence number (6482), but a workload
-  of many tiny batches would pay more, since each save rewrites the whole graph.
+  grows. The harness ingests in 5k-row batches and reserialises the sidecar
+  after each one (20 writes at 100k); a workload of many tiny batches would pay
+  more, since each save rewrites the whole graph.
 - **Peak RSS at 100k (430 MB) is inflated by the Python driver** holding the
   whole synthetic corpus (100k × 64 floats as Python lists) in memory at once.
   The native cross-check below is the honest engine-only number.
@@ -179,12 +184,12 @@ vs 49.4 ms warm p50; `dense`: 0.32 ms cold vs 0.17 ms warm).
 | | value |
 |---|---|
 | SQLite on disk | 8.58 MB |
-| Peak RSS (engine only) | 37.7 MB |
-| Ingest throughput | 783 docs/s |
-| dense p50 / p95 / p99 | 0.671 / 0.736 / 0.793 ms |
-| hybrid p50 / p95 / p99 | 0.938 / 0.999 / 1.048 ms |
+| Peak RSS (engine only) | 37.1 MB |
+| Ingest throughput | 787 docs/s |
+| dense p50 / p95 / p99 | 0.663 / 0.727 / 0.773 ms |
+| hybrid p50 / p95 / p99 | 0.922 / 0.983 / 1.03 ms |
 
-The engine's own peak RSS for 20k docs is **~38 MB**, versus the 79–430 MB the
+The engine's own peak RSS for 20k docs is **~37 MB**, versus the 79–431 MB the
 Python-driven run reports — most of that difference is the driver, not the
 engine. Ingest throughput here (783 docs/s) is a *worst case*: uniformly random
 64-dim vectors are the hardest input for HNSW (every candidate is roughly
@@ -205,36 +210,36 @@ faster. Real embeddings sit between the two.
   relative to `dense` in any configuration; when the dense signal degraded, RRF
   fell back on sparse automatically. You do not have to tune which retriever to
   trust per query.
-- **Recency-biased agent memory is built in.** `hybrid_decay` held nDCG ≈ 0.997
-  across all sizes by preferring recent relevant memories — the Mem0/Zep-style
-  capability, in-process, no service, one `decay_lambda` parameter.
+- **Recency-biased agent memory is built in.** `hybrid_decay` matched `hybrid`
+  on every quality metric while preferring recent relevant memories — the
+  Mem0/Zep-style capability, in-process, no service, one `decay_lambda`.
 - **Zero-dependency deployment.** One process, one SQLite file plus a
   `.usearch` sidecar, an in-memory usearch index. No server to run, no
-  container, nothing listening on a port. Engine-only peak RSS is ~38 MB for
+  container, nothing listening on a port. Engine-only peak RSS is ~37 MB for
   20k docs.
 - **Instant startup via the disk-backed index sidecar.** The HNSW graph is
   serialised to `<db>.usearch` on write and memory-loaded on the next open:
-  **24.5 ms at 100k**, versus 14.6 s to rebuild it from SQLite. Cold start is
+  **~40 ms at 100k**, versus 14.6 s to rebuild it from SQLite. Cold start is
   no longer a function of corpus size.
-- **Dense retrieval is fast and scale-stable.** Sub-0.2 ms p50 at 100k, ~5700
-  q/s single-threaded.
+- **Dense retrieval is fast and scale-stable.** Sub-0.2 ms p50 at 100k, ~5200
+  q/s single-threaded. Hybrid stays single-digit ms (~6.7 ms p50, ~150 q/s).
 - **SQLite stays authoritative.** The sidecar is a cache: if it is missing,
   truncated, or its vector count disagrees with the chunk table, the engine
   discards it and rebuilds — a corrupt index is never data loss.
 
 ### Where it loses or bottlenecks
 
-- **Sparse/hybrid query latency grows with corpus size** — ~49 ms p50 at 100k,
-  ~20 q/s. FTS5's BM25 over an OR of common terms is the cost. Dense stays
-  sub-millisecond; the fusion is only as fast as its slower half.
-- **`hybrid_decay` has a fat tail.** The extra recency re-scoring pass pushes
-  100k p99 to ~87 ms and throughput to ~14 q/s.
+- **`hybrid_decay` (agent-memory read) is ~5× slower than plain hybrid** —
+  33 ms p50 / 50 ms p99 at 100k. It fetches each fused candidate's `created_at`
+  with a separate SQL query; batching that into one lookup is the next
+  optimisation. Plain hybrid search is ~6.7 ms p50.
+- **Sparse/hybrid latency still grows with corpus size** — ~0.1 → ~6.7 ms p50
+  from 1k to 100k, versus dense's flat sub-0.2 ms. FTS5 merging longer posting
+  lists is the cost; the fusion is only as fast as its slower half.
 - **Dual-write ingestion overhead, plus sidecar reserialisation.** Every
-  document hits SQLite, FTS5, and usearch; throughput drops ~3.3× from 1k to
-  100k, and HNSW insertion cost is sensitive to how clustered the embeddings
-  are (783 → 22k docs/s depending on input). Each `add_documents` call also
-  rewrites the whole `.usearch` sidecar — negligible for bulk ingest,
-  meaningful for a stream of one-document writes.
+  document hits SQLite, FTS5, and usearch; throughput drops ~4× from 1k to
+  100k. Each `add_documents` call also rewrites the whole `.usearch` sidecar —
+  negligible for bulk ingest, meaningful for a stream of one-document writes.
 - **Single-threaded, not concurrency-safe.** `RetrievalEngine` must be confined
   to one thread or externally locked; there is no query parallelism yet.
 - **Small embedding dimensions collide.** dim 64 is fine for a demo; production

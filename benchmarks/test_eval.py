@@ -108,6 +108,29 @@ def test_synthetic_corpus_is_deterministic_and_well_formed():
         assert len(query["relevant_ids"]) >= 1
 
 
+def test_corpus_query_terms_are_selective():
+    """Query terms must not each match a large fraction of the corpus,
+    otherwise the sparse (BM25) arm scans most of it per query -- an
+    artefact of an unrealistically small vocabulary, not real text."""
+    from collections import Counter
+
+    from corpus import build_corpus
+
+    corpus = build_corpus(4000, 60, dim=32)
+    df = Counter()
+    for doc in corpus.documents:
+        df.update(set(doc["text"].split()))
+    n = len(corpus.documents)
+
+    # No token is near-ubiquitous (real text is Zipfian, not uniform).
+    assert max(df.values()) / n < 0.35
+
+    # Every query term is selective: it matches a small slice of the corpus.
+    for query in corpus.queries:
+        for term in query["text"].split():
+            assert df[term] / n < 0.05, f"{term!r} matches {df[term] / n:.0%} of docs"
+
+
 # --- run_eval.py: fresh end-to-end run against a temp output ----------
 
 

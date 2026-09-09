@@ -20,7 +20,7 @@ open, so startup is instant regardless of corpus size.
 | | |
 |---|---|
 | **Embedded / zero-service** | One process, one SQLite file plus a `.usearch` sidecar. No Docker, no daemon, no port. A query is a function call — sub-millisecond for dense search (see [benchmarks](#empirical-benchmarks-verified)). |
-| **Instant startup** | The vector index is loaded from disk, not rebuilt — ~25 ms to open a 100k-chunk store, versus ~15 s to reconstruct it from SQLite. |
+| **Instant startup** | The vector index is loaded from disk, not rebuilt — ~40 ms to open a 100k-chunk store, versus ~15 s to reconstruct it from SQLite. |
 | **Hybrid retrieval** | Dense vector search (usearch, cosine HNSW) **+** sparse keyword search (SQLite FTS5 / BM25), fused by **Reciprocal Rank Fusion** (RRF, k=60). Rank-based fusion — no score normalisation, no per-query tuning. |
 | **Agent memory** | Exponential recency decay — `score × e^(−λ·age_days)` — so a fresher, slightly-less-similar memory can outrank a stale one. `λ = 0` is an exact no-op. |
 | **Explainable** | `search_explained()` returns the full per-result score trail: dense distance & rank, BM25 score & rank, fused score, recency factor, decayed score. |
@@ -132,34 +132,37 @@ Reproduce with `python benchmarks/run_eval.py`; full method and raw data in
 [`BENCHMARKS.md`](BENCHMARKS.md) and [`benchmarks/results.json`](benchmarks/results.json).
 Machine: Apple Silicon (macOS arm64), single thread, embedding dim 64, 100 labelled queries.
 
-> **Read the corpus honestly.** It is synthetic, and the `dense` column uses a
-> 64-dim hashed bag-of-words, not a trained model — so `sparse` is a best case
-> and `dense` a worst case. Latency and memory are model-independent and
-> transfer directly; the quality table shows *how RRF behaves when the two
-> signals disagree*, not an absolute score for dense retrieval.
+> **Read the corpus honestly.** It is synthetic (a Zipf-distributed pseudo-word
+> vocabulary), and the `dense` column uses a 64-dim hashed bag-of-words, not a
+> trained model — treat it as a floor. `sparse` gets a clean per-query
+> exact-match cue, so read its perfect score as an upper bound. Latency and
+> memory transfer directly. A real BEIR run with a trained embedder is tracked
+> follow-up work.
 
 ### Retrieval quality (Recall@10 / nDCG@10)
 
 | Approach | 1k | 10k | 100k |
 |---|---|---|---|
-| Dense only | 0.987 / 0.944 | 0.783 / 0.752 | 0.493 / 0.507 |
+| Dense only | 1.000 / 0.987 | 0.990 / 0.947 | 0.883 / 0.752 |
 | Sparse only (BM25) | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 |
-| **Hybrid (RRF)** | **1.000 / 0.992** | **1.000 / 0.969** | **1.000 / 0.951** |
-| Hybrid + recency decay | 1.000 / 0.998 | 1.000 / 0.998 | 1.000 / 0.997 |
+| **Hybrid (RRF)** | **1.000 / 1.000** | **1.000 / 1.000** | **1.000 / 0.993** |
+| Hybrid + recency decay | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 |
 
-Hybrid recovers **every point of recall the dense path loses at scale** (1.000
-vs 0.493 at 100k) — RRF lets the keyword side carry the query when the vector
-side degrades.
+Hybrid recovers **the recall and ranking dense loses at scale** (1.000 / 0.993
+vs 0.883 / 0.752 at 100k) — RRF lets the BM25 side carry the query when the
+vector side weakens.
 
 ### Latency (warm cache, single thread)
 
 | Approach | 1k p50 / p99 | 100k p50 / p99 | 100k throughput |
 |---|---|---|---|
-| Dense | 0.090 / 0.097 ms | 0.173 / 0.211 ms | 5,705 q/s |
-| Hybrid | 0.524 / 0.558 ms | 49.4 / 50.5 ms | 20 q/s |
+| Dense | 0.092 / 0.103 ms | 0.185 / 0.334 ms | 5,209 q/s |
+| Hybrid | 0.169 / 0.192 ms | 6.7 / 8.0 ms | 148 q/s |
 
-Dense stays **sub-0.2 ms p50 at 100k**. Sparse/hybrid latency is dominated by
-FTS5 and grows with corpus size — the main query-time bottleneck.
+Dense stays **sub-0.2 ms p50 at 100k**. Hybrid stays **single-digit ms** and
+grows with corpus size (FTS5 posting-list merge). The agent-memory read
+(`hybrid_decay`) is ~5× slower — a per-candidate `created_at` lookup that's
+next on the optimisation list.
 
 ### Startup: instant, disk-backed index
 
@@ -168,7 +171,7 @@ on the next open, instead of being rebuilt from SQLite:
 
 | | 1k | 10k | 100k |
 |---|---|---|---|
-| Index load on open | 0.7 ms | 3.2 ms | **24.5 ms** |
+| Index load on open | 0.6 ms | 3.0 ms | **~40 ms** |
 | _(previously: rebuild from SQLite)_ | 40 ms | 0.7 s | **14.6 s** |
 
 SQLite stays authoritative — a missing, truncated, or out-of-sync sidecar is
@@ -178,12 +181,12 @@ rejected and the engine rebuilds transparently.
 
 | | 1k | 10k | 100k |
 |---|---|---|---|
-| SQLite on disk | 0.57 MB | 5.2 MB | 52 MB |
-| `.usearch` sidecar | ~0.5 MB | ~4 MB | 40.5 MB |
-| Peak RSS (Python-driven) | 35 MB | 79 MB | 430 MB |
+| SQLite on disk | 0.59 MB | 5.4 MB | 55 MB |
+| `.usearch` sidecar | ~0.5 MB | ~4 MB | ~41 MB |
+| Peak RSS (Python-driven) | 36 MB | 79 MB | 431 MB |
 
 The native C++ cross-check (`benchmarks/run_benchmarks.cpp`) puts the
-**engine-only peak RSS at ~38 MB for 20,000 documents** — most of the
+**engine-only peak RSS at ~37 MB for 20,000 documents** — most of the
 Python-driven figure is the benchmark driver holding the corpus, not the engine.
 
 ---
@@ -267,6 +270,17 @@ cmake -B build -DCMAKE_PREFIX_PATH=/opt/homebrew && cmake --build build
 ctest --test-dir build --output-on-failure      # C++ suite
 .venv/bin/pytest                                 # Python + CLI suite
 ```
+
+## Roadmap
+
+- **Concurrent reads.** A single-writer / lock-free-reads model so one engine
+  instance can serve many query threads (today: one instance per thread).
+- **Batched recency lookup.** `search_memory` fetches each candidate's
+  `created_at` with its own query; one batched lookup removes the
+  `hybrid_decay` latency gap.
+- **Real retrieval eval.** A BEIR run (SciFact / NFCorpus) with a trained ONNX
+  embedder, alongside the mechanism benchmark.
+- **Wider wheels.** Windows and Linux aarch64.
 
 ## Contributing
 
