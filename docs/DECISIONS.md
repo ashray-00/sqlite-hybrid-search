@@ -5,6 +5,33 @@ stays a plan and this stays a record of what actually happened building it.
 
 ## Stage 1
 
+### Decision: replaced istringstream with manual scanning in chunk_text() (user-requested)
+
+**What happened:** the user asked whether `istringstream` and other STL
+choices across the codebase were sound for memory/performance, citing
+well-documented iostream criticism. Audited every `stringstream`/`ostringstream`
+use in the codebase: `sqlite_util.cpp`'s `ThrowIfSqliteError` builds one on
+an error path only (fires on failures, never in a loop -- not worth
+touching, an exception already costs far more), but `chunking.cpp`'s
+`chunk_text()` used `istringstream` for tokenization on what is a genuine
+hot path -- called once per document ingested, with BUILD_PLAN.md's own
+Stage 1 scale target being "ingestion of 10k chunks". `istringstream` pays
+for generality unused here: a global-locale lookup on construction and a
+virtual call through its streambuf per character extracted.
+
+**Fix:** manual `find_first_not_of`/`find_first_of` scanning producing
+`std::string_view` tokens (no per-token allocation during tokenization),
+plus `reserve()`-ing each chunk's text before the `+=` loop that assembles
+it. Behavior-preserving -- all 10 tests passed unmodified throughout,
+including the exact token-boundary and empty-input cases, used as the
+correctness safety net rather than re-deriving it by inspection.
+
+**Also reviewed and left alone:** every other `std::string` concatenation in
+the codebase (`chunk_store.cpp`, `sqlite_util.cpp`) only happens immediately
+before `throw` on an error path -- not a hot path, so not worth the same
+treatment. No `std::regex`, `std::endl`, or other commonly-flagged STL
+performance pitfalls were found elsewhere in the codebase.
+
 ### Decision: split retrieval_engine.cpp into focused modules (user-requested)
 
 **What happened:** by the end of Stage 1, `retrieval_engine.cpp` had grown
