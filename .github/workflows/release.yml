@@ -25,7 +25,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-13, macos-14]   # x86_64 Linux, Intel + Apple-Silicon macOS
+        # x86_64 Linux + Apple-Silicon macOS. GitHub retired the macos-13
+        # (Intel) hosted runners; Intel-Mac users build from the sdist.
+        os: [ubuntu-latest, macos-14]
     steps:
       - uses: actions/checkout@v4
 
@@ -35,7 +37,7 @@ jobs:
           # cp39..cp313, 64-bit only; skip PyPy and musl for a first release.
           CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
           CIBW_SKIP: "*-musllinux_* *_i686 *-win32 pp*"
-          CIBW_ARCHS_MACOS: "auto"        # native arch per runner (x86_64 on macos-13, arm64 on macos-14)
+          CIBW_ARCHS_MACOS: "arm64"
           # The built-in ONNX Runtime backend is a source-build opt-in; PyPI
           # wheels ship the dependency-free mock backend only.
           CIBW_ENVIRONMENT_LINUX: 'CMAKE_ARGS="-DRETRIEVAL_ENGINE_WITH_ONNX=OFF"'
