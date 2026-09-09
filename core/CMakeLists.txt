@@ -1,12 +1,19 @@
 # The core engine library.
 #
-# Phase 2 (GREEN): retrieval_engine.cpp implements the RetrievalEngine
-# interface declared in include/retrieval_engine/retrieval_engine.hpp, so
-# this is a real compiled library rather than a header-only INTERFACE target.
-# chunking.cpp (Stage 1) implements the token-window chunker.
+# retrieval_engine.cpp is a thin Pimpl facade implementing the public
+# interface (include/retrieval_engine/retrieval_engine.hpp) by delegating to
+# two internal, independently-testable stores (dummy_vector_store.cpp:
+# Stage 0's scaffolding; chunk_store.cpp: Stage 1's real feature), which in
+# turn share the generic SQLite RAII helpers in sqlite_util.cpp and the
+# usearch capacity helper in usearch_util.hpp (header-only). chunking.cpp
+# (Stage 1) implements the token-window chunker, used by callers directly
+# rather than by any store.
 add_library(retrieval_engine_core
+    src/chunk_store.cpp
     src/chunking.cpp
+    src/dummy_vector_store.cpp
     src/retrieval_engine.cpp
+    src/sqlite_util.cpp
 )
 add_library(retrieval_engine::core ALIAS retrieval_engine_core)
 
