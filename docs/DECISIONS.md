@@ -3,6 +3,52 @@
 Decision log across stages. Kept separate from BUILD_PLAN.md so the plan
 stays a plan and this stays a record of what actually happened building it.
 
+## Stage 3
+
+### Decision: Python Engine API adapted to existing C++ functionality, not invented fresh
+
+**What happened:** the Stage 3 RED instructions specified
+`Engine(db_path, index_path)` and `engine.add(documents, embeddings)`.
+Neither matches the real `RetrievalEngine` (core/include/retrieval_engine/
+retrieval_engine.hpp) as it stands after three stages of refactoring:
+- No `index_path`/file-based index persistence exists at all -- the
+  architecture has always been SQLite + rebuild-the-usearch-sidecar-on-open
+  (BUILD_PLAN.md section 5), reinforced across every stage's review.
+  `dim` is required by the real constructor and wasn't in the given
+  signature.
+- `add_documents()` takes structured `DocumentInput`/`DocumentChunkInput`
+  (pre-chunked, pre-embedded, with metadata and token offsets), not a flat
+  `(documents, embeddings)` pair.
+
+Flagged this to the user with two options (match the literal signature by
+building new index-to-file C++ persistence, vs. adapt the Python surface to
+what already exists). The user's answer: re-check the actual code (since
+heavy refactoring has happened across stages) and confirm the *functionality*
+is present even if names/shapes differ, rather than assuming a gap.
+Re-read the header fresh and confirmed: `search_hybrid()`/`search_explained()`
+already match name-and-shape exactly; only the constructor and `add()` had
+real gaps, and both close via binding-layer adaptation, not new engine
+capability.
+
+**Resolved Python API (specified in tests/test_stage3.py):**
+- `Engine(db_path: str, dim: int)` -- mirrors `RetrievalEngine(db_path, dim)`
+  exactly; no `index_path`.
+- `engine.add(documents, embeddings)` -- kept the literal two-parameter
+  shape from the ask, but maps each `(document, embedding)` pair onto one
+  `DocumentInput` with a *single* `DocumentChunkInput` (the whole document
+  text as one chunk). Multi-chunk ingestion via `chunk_text()` already has
+  its own coverage from Stage 1; this smoke test isn't the place to
+  duplicate it.
+- `engine.search(query_vec, top_k)` -> `search_dense()`.
+- `engine.search_hybrid(...)` / `engine.search_explained(...)` -> unchanged,
+  already matched.
+
+**Revisit when:** if a real need for file-based index persistence emerges
+(e.g. avoiding the rebuild-from-SQLite cost for very large corpora on
+process start), that's new core C++ work belonging to its own stage/task --
+matching BUILD_PLAN.md's own `.save()`/`.load()` bullet as methods, not a
+constructor parameter -- not something to fold into Stage 3's bindings work.
+
 ## Stage 2
 
 ### Decision: split ChunkStore into 4 components + a thin orchestrator, renamed ChunkSearchResult::distance to score (user-requested)
