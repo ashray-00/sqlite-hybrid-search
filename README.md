@@ -30,19 +30,38 @@ open, so startup is instant regardless of corpus size.
 
 ## Install
 
-Not yet published to PyPI. Build from source (needs a C++17 toolchain, CMake ≥ 3.24,
-and SQLite; usearch is fetched automatically):
+Not yet published to PyPI. Build from source. You need a C++17 toolchain,
+CMake ≥ 3.24, Python ≥ 3.9 with `venv`, and SQLite (with FTS5 — the default on
+mainstream builds). `usearch` and GoogleTest are fetched automatically.
 
 ```console
 git clone https://github.com/<owner>/retrieval-engine   # your fork/repo URL
 cd retrieval-engine
-python -m venv .venv && .venv/bin/pip install -e .
+python3 -m venv .venv && .venv/bin/pip install -e .
 ```
 
-On macOS/ARM64, install SQLite via Homebrew first (`brew install sqlite`) and
-configure with `-DCMAKE_PREFIX_PATH=/opt/homebrew`. The built-in ONNX embedder
-is optional — without ONNX Runtime installed, the engine still builds and the
-caller-supplied-vector path is unaffected.
+**Dependencies:**
+
+| | macOS (Homebrew) | Debian / Ubuntu | Fedora / RHEL | Arch |
+|---|---|---|---|---|
+| Toolchain + CMake | `xcode-select --install`<br>`brew install cmake` | `sudo apt install build-essential cmake python3-venv` | `sudo dnf install gcc-c++ cmake python3-devel` | `sudo pacman -S base-devel cmake` |
+| SQLite | `brew install sqlite` | `sudo apt install libsqlite3-dev` | `sudo dnf install sqlite-devel` | `sudo pacman -S sqlite` |
+
+- **macOS only:** Homebrew's `sqlite` is keg-only, so configure the C++ build
+  with `-DCMAKE_PREFIX_PATH=/opt/homebrew` (the CMake project also autodetects
+  it via `brew --prefix`). On Linux the system SQLite is found with no extra
+  flags.
+- **Ubuntu 22.04** ships CMake 3.22; either `.venv/bin/pip install "cmake>=3.24"`
+  or add the [Kitware APT repo](https://apt.kitware.com/).
+
+**Optional built-in ONNX embedder.** Without ONNX Runtime the engine still
+builds and every caller-supplied-vector path works unchanged; only
+`load_embedding_model()` / `add_text()` / `search_text()` are unavailable.
+
+| | Install ONNX Runtime |
+|---|---|
+| macOS | `brew install onnxruntime` |
+| Linux | Download a release from [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime/releases) (`onnxruntime-linux-x64-*.tgz`), then `sudo cp -r onnxruntime-linux-x64-*/include/* /usr/local/include/` and `sudo cp -rP onnxruntime-linux-x64-*/lib/* /usr/local/lib/ && sudo ldconfig`. Or point CMake at it directly: `-DONNXRUNTIME_INCLUDE_DIR=<dir> -DONNXRUNTIME_LIBRARY=<dir>/libonnxruntime.so`. |
 
 ---
 
@@ -227,7 +246,12 @@ docs/        architecture decision records + development log
 ## Building & testing
 
 ```console
+# Linux
+cmake -B build && cmake --build build
+
+# macOS (Homebrew SQLite / ONNX Runtime live under /opt/homebrew)
 cmake -B build -DCMAKE_PREFIX_PATH=/opt/homebrew && cmake --build build
+
 ctest --test-dir build --output-on-failure      # C++ suite
 .venv/bin/pytest                                 # Python + CLI suite
 ```

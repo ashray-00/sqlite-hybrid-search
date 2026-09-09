@@ -90,8 +90,10 @@ if(RETRIEVAL_ENGINE_WITH_ONNX)
     else()
         message(WARNING
             "ONNX Runtime not found (looked for onnxruntime_cxx_api.h and libonnxruntime); "
-            "building with the mock embedding backend only. Install it "
-            "(`brew install onnxruntime`) and reconfigure to enable the real backend.")
+            "building with the mock embedding backend only. To enable the real backend, install "
+            "it (macOS: `brew install onnxruntime`; Linux: extract an onnxruntime-linux-* release "
+            "into /usr/local, or pass -DONNXRUNTIME_INCLUDE_DIR= and -DONNXRUNTIME_LIBRARY=) and "
+            "reconfigure. See README.md.")
         set(RETRIEVAL_ENGINE_WITH_ONNX OFF)
     endif()
 endif()

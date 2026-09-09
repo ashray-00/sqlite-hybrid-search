@@ -21,14 +21,17 @@ raw numbers in [`benchmarks/results.json`](benchmarks/results.json).
 
 ### Environment
 
-`macOS 26.6 arm64` (Apple Silicon), Python 3.12, engine dim 64, single thread.
-Full C++/Python test suites green (`ctest`: 40, `pytest`: 32).
+Numbers below were measured on `macOS 26.6 arm64` (Apple Silicon), Python 3.12,
+engine dim 64, single thread. Full C++/Python test suites green (`ctest`: 41,
+`pytest`: 32). The harness is OS-independent; absolute timings will differ on
+other hardware.
 
 ### Reproduce
 
 ```
-cmake -B build -DCMAKE_PREFIX_PATH=/opt/homebrew && cmake --build build
-.venv/bin/python benchmarks/run_eval.py            # 1k / 10k / 100k, ~1.5 min
+cmake -B build && cmake --build build            # Linux
+# macOS: cmake -B build -DCMAKE_PREFIX_PATH=/opt/homebrew && cmake --build build
+.venv/bin/python benchmarks/run_eval.py           # 1k / 10k / 100k, ~1.5 min
 ```
 
 ### Honest caveat on the corpus
